@@ -12,4 +12,4 @@ catch (e) {
     // no-op
 }
 
-module.exports = {};
+export {};

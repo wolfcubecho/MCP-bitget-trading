@@ -13,7 +13,7 @@ import {
   CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import dotenv from 'dotenv';
-import './utils/stdio-protect';
+import './utils/stdio-protect.js';
 import { BitgetRestClient } from './api/rest-client.js';
 import { BitgetConfig } from './types/bitget.js';
 import { logger } from './utils/logger.js';
