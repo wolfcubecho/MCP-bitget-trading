@@ -788,7 +788,7 @@ export class BitgetRestClient {
     const response = await this.request<any>('POST', '/api/v2/mix/account/set-leverage', {
       symbol: cleanSymbol,
       productType: 'USDT-FUTURES',
-      marginCoin: params.marginCoin || 'USDT',  // Required parameter!
+      marginCoin: 'USDT'
       leverage: leverage.toString(),
       holdSide: 'long'
     }, true);
