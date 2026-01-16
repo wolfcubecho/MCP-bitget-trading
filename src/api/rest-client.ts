@@ -72,6 +72,13 @@ export class BitgetRestClient {
   }
 
   /**
+   * Helper to determine if params are for futures
+   */
+  private isFuturesParams(params: OrderParams): boolean {
+    return !!(params.marginCoin || params.marginMode || (params.symbol && (params.symbol.includes('_UMCBL') || params.symbol.includes('_'))));
+  }
+
+  /**
    * Format interval for Bitget Futures API
    * Futures API accepts: [1m,3m,5m,15m,30m,1H,4H,6H,12H,1D,1W,1M,6Hutc,12Hutc,1Dutc,3Dutc,1Wutc,1Mutc]
    */
@@ -537,7 +544,7 @@ export class BitgetRestClient {
    * Place a new order (automatically detects spot vs futures)
    */
   async placeOrder(params: OrderParams): Promise<Order> {
-    if (this.isFuturesSymbol(params.symbol)) {
+    if (this.isFuturesParams(params)) {
       return this.placeFuturesOrder(params);
     } else {
       return this.placeSpotOrder(params);
