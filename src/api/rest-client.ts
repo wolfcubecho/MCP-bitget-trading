@@ -643,8 +643,14 @@ export class BitgetRestClient {
       throw new Error('Invalid side for Bitget futures order');
     }
 
+    // Always append _UMCBL for USDT-margined futures
+    let symbol = params.symbol;
+    if (!symbol.endsWith('_UMCBL')) {
+      symbol = symbol + '_UMCBL';
+    }
+
     const orderData: any = {
-      symbol: futuresSymbol.replace('_UMCBL', ''),  // v2 API might not need suffix
+      symbol,
       productType: 'USDT-FUTURES',
       marginCoin: params.marginCoin || 'USDT',
       marginMode: params.marginMode || 'crossed',
