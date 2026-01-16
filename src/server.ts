@@ -384,7 +384,7 @@ class BitgetMCPServer {
             console.error('Received placeOrder request:', JSON.stringify(orderParams, null, 2));
             
             // Determine if this is a futures order
-            const isFutures = orderParams.symbol.includes('_UMCBL') || orderParams.symbol.includes('_');
+            const isFutures = orderParams.marginCoin || orderParams.marginMode || orderParams.symbol.includes('_UMCBL') || orderParams.symbol.includes('_');
             console.error(`Order type detected: ${isFutures ? 'futures' : 'spot'}`);
             
             const order = await this.bitgetClient.placeOrder(orderParams);
