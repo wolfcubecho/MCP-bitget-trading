@@ -604,12 +604,26 @@ export class BitgetRestClient {
     const futuresSymbol = params.symbol.includes('_UMCBL') ? params.symbol : `${params.symbol}_UMCBL`;
     
     // Use v2 API format for futures orders
+    // Map side and reduceOnly to Bitget tradeSide
+    let tradeSide: string;
+    if (params.side === 'buy' && params.reduceOnly) {
+      tradeSide = 'close_short';
+    } else if (params.side === 'sell' && params.reduceOnly) {
+      tradeSide = 'close_long';
+    } else if (params.side === 'buy') {
+      tradeSide = 'open_long';
+    } else if (params.side === 'sell') {
+      tradeSide = 'open_short';
+    } else {
+      throw new Error('Invalid side for Bitget futures order');
+    }
+
     const orderData: any = {
       symbol: futuresSymbol.replace('_UMCBL', ''),  // v2 API might not need suffix
       productType: 'USDT-FUTURES',
       marginCoin: params.marginCoin || 'USDT',
       marginMode: params.marginMode || 'crossed',
-      side: params.side,
+      tradeSide,
       orderType: params.type,
       size: params.quantity,  // For futures, this is in contracts
     };
