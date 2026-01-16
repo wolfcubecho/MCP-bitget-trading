@@ -598,8 +598,8 @@ export class BitgetRestClient {
     const orderData: any = {
       symbol: futuresSymbol.replace('_UMCBL', ''),  // v2 API might not need suffix
       productType: 'USDT-FUTURES',
-      marginCoin: params.marginCoin || 'USDT',
-      marginMode: params.marginMode || 'crossed',
+      marginCoin: 'USDT',
+      marginMode: 'crossed',
       side: params.side,
       orderType: params.type,
       size: params.quantity,  // For futures, this is in contracts
