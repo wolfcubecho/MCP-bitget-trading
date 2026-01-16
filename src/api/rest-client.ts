@@ -598,8 +598,8 @@ export class BitgetRestClient {
     const orderData: any = {
       symbol: futuresSymbol.replace('_UMCBL', ''),  // v2 API might not need suffix
       productType: 'USDT-FUTURES',
-      marginCoin: 'USDT',
-      marginMode: 'crossed',
+      marginCoin: params.marginCoin || 'USDT',
+      marginMode: params.marginMode || 'crossed',
       side: params.side,
       orderType: params.type,
       size: params.quantity,  // For futures, this is in contracts
@@ -788,7 +788,7 @@ export class BitgetRestClient {
     const response = await this.request<any>('POST', '/api/v2/mix/account/set-leverage', {
       symbol: cleanSymbol,
       productType: 'USDT-FUTURES',
-      marginCoin: 'USDT',  // Required parameter!
+      marginCoin: params.marginCoin || 'USDT',  // Required parameter!
       leverage: leverage.toString(),
       holdSide: 'long'
     }, true);
