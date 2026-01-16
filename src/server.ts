@@ -90,7 +90,7 @@ class BitgetMCPServer {
       secretKey: process.env.BITGET_SECRET_KEY || '',
       passphrase: process.env.BITGET_PASSPHRASE || '',
       sandbox: isSandbox,
-      baseUrl: isSandbox ? 'https://api.bitgetapp.com' : 'https://api.bitget.com',
+      baseUrl: 'https://api.bitget.com',
       wsUrl: isSandbox ? 'wss://wspap.bitget.com/v2/ws/public' : 'wss://ws.bitget.com/v2/ws/public',
     };
   }
