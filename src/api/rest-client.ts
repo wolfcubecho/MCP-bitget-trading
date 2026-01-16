@@ -242,22 +242,47 @@ export class BitgetRestClient {
           body: method === 'POST' ? body : undefined,
         });
 
-        if (!response.ok) {
-          throw new BitgetNetworkError(`HTTP ${response.status}: ${response.statusText}`);
+        let responseBody: string | undefined;
+        let data: APIResponse<T> | undefined;
+        try {
+          responseBody = await response.text();
+          data = JSON.parse(responseBody) as APIResponse<T>;
+        } catch (parseErr) {
+          logger.error('Failed to parse Bitget API response as JSON', {
+            requestId,
+            status: response.status,
+            responseBody,
+            parseErr: parseErr instanceof Error ? parseErr.message : parseErr
+          });
+          throw new BitgetNetworkError(`Failed to parse Bitget API response: ${responseBody}`);
         }
 
-        const data = await response.json() as APIResponse<T>;
-        
+        if (!response.ok) {
+          logger.error('Bitget API HTTP error', {
+            requestId,
+            status: response.status,
+            statusText: response.statusText,
+            responseBody
+          });
+          throw new BitgetNetworkError(`HTTP ${response.status}: ${response.statusText} - ${responseBody}`);
+        }
+
         logger.debug('Received API response', {
           requestId,
           status: response.status,
-          code: data.code
+          code: data.code,
+          responseBody
         });
 
         if (data.code !== '00000') {
           const errorCode = data.code;
           const errorMessage = data.msg || 'Unknown API error';
-          
+          logger.error('Bitget API error response', {
+            requestId,
+            errorCode,
+            errorMessage,
+            responseBody
+          });
           // Classify errors
           if (errorCode === '40009') {
             throw new BitgetAuthenticationError(`Authentication failed: ${errorMessage}`);
