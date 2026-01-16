@@ -4,7 +4,9 @@
  */
 
 import crypto from 'crypto';
-import fetch from 'node-fetch';\nimport fs from 'fs';\nimport path from 'path';
+import fetch from 'node-fetch';
+import fs from 'fs';
+import path from 'path';
 import { 
   BitgetConfig, 
   APIResponse, 
