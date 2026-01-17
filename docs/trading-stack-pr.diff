@@ -1,0 +1,90 @@
+diff --git a/package.json b/package.json
+index 1111111..2222222 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,7 @@
+ {
+   "name": "trading-stack",
+   "version": "1.0.0",
++  "private": true,
+   "scripts": {
+     "install:all": "npm run setup:mcp && npm run setup:clients",
+     "setup:mcp": "echo setup mcp"
+@@ -20,6 +21,9 @@
+   "dependencies": {
+     "dotenv": "^16.3.1",
+     "ts-node": "^10.9.2",
++    // Ensure CCXT fork is installed for Bitget integration
++    "ccxt": "github:wolfcubecho/ccxt"
+   }
+ }
+
+diff --git a/README.md b/README.md
+index 3333333..4444444 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,24 @@
+ # Trading Stack
+ 
++## Bitget MCP + CCXT Setup
++
++This stack uses the `wolfcubecho/ccxt` fork for Bitget integration. Ensure the dependency is present and MCP Bitget Trading is installed:
++
++```bash
++npm install github:wolfcubecho/ccxt
++cd mcp/MCP-bitget-trading
++npm install
++npm test --silent
++```
++
++### Demo vs Live
++
++- Demo (paper): set `BITGET_SANDBOX=true` and provide demo keys
++- Live (mainnet): set `BITGET_SANDBOX=false` and provide live keys
++
++On Windows PowerShell:
++
++```powershell
++$env:BITGET_API_KEY = "<your_live_key>"
++$env:BITGET_SECRET_KEY = "<your_live_secret>"
++$env:BITGET_PASSPHRASE = "<your_live_passphrase>"
++$env:BITGET_SANDBOX = "false"
++```
++
+ ## Installation
+ 
+ 1. Clone repo
+@@ -50,6 +68,10 @@
+ 
+ ### MCP Projects
+ 
++- Bitget MCP Trading
++  - Location: `mcp/MCP-bitget-trading`
++  - CLI examples: see `trade-command.js` README section in that project for futures (swap) and optional spot margin usage
++
+ ### Clients
+ 
+ - TBD
+
+diff --git a/install.ps1 b/install.ps1
+index a1b2c3d..e4f5a6b 100644
+--- a/install.ps1
++++ b/install.ps1
+@@
++# Verify Node.js and npm are available
++if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Error "Node.js 18+ required."; exit 1 }
++if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Write-Error "npm required."; exit 1 }
++
++# Resolve repo root if not already set
++if (-not $RepoRoot) { $RepoRoot = (Get-Location).Path }
++
++# Install MCP-bitget-trading dependencies (includes CCXT fork via package.json)
++$mcpRepo = Join-Path $RepoRoot "mcp\MCP-bitget-trading"
++if (Test-Path $mcpRepo) {
++  Write-Host "Installing dependencies in $mcpRepo (includes CCXT fork)..."
++  Push-Location $mcpRepo
++  if (Test-Path "package-lock.json") { npm ci } else { npm install }
++  Pop-Location
++} else {
++  Write-Warning "MCP-bitget-trading not found at $mcpRepo; skipping dependency install"
++}
