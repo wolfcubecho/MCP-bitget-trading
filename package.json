@@ -27,6 +27,7 @@
     "crypto": "^1.0.1",
     "dotenv": "^16.3.1",
     "node-fetch": "^3.3.2",
+    "ccxt": "github:wolfcubecho/ccxt",
     "ws": "^8.16.0",
     "zod": "^3.22.4"
   },

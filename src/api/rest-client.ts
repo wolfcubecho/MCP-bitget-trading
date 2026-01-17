@@ -1,8 +1,3 @@
-/**
- * Bitget REST API Client
- * Handles all REST API communications with Bitget exchange
- */
-
 import crypto from 'crypto';
 import fetch from 'node-fetch';
 import fs from 'fs';
@@ -29,6 +24,28 @@ import { retryManager, RetryManager } from '../utils/retry.js';
 import { priceCache, tickerCache, orderbookCache, candlesCache, balanceCache, positionsCache } from '../utils/cache.js';
 
 export class BitgetRestClient {
+  // ...existing code...
+
+  /**
+   * Fetch all margin-enabled spot trading symbols
+   */
+  async getMarginSymbols(): Promise<any[]> {
+    const response = await this.request<any>('GET', '/api/v2/spot/market/support-symbols', {});
+    // Filter for margin-enabled pairs if needed (see API response structure)
+    return (response.data && Array.isArray(response.data))
+      ? response.data.filter((s: any) => s.isMarginOpen === '1')
+      : [];
+  }
+
+  /**
+   * Fetch all available USDT-margined futures contracts
+   */
+  async getUsdtFuturesContracts(): Promise<any[]> {
+    const response = await this.request<any>('GET', '/api/v2/mix/market/contracts', {
+      productType: 'USDT-FUTURES'
+    });
+    return response.data || [];
+  }
   private config: BitgetConfig;
   private rateLimitRequests: number = 0;
   private rateLimitWindow: number = Date.now();
@@ -625,14 +642,15 @@ export class BitgetRestClient {
    * Place a futures order
    */
   private async placeFuturesOrder(params: OrderParams): Promise<Order> {
-    // For v1 mix API, keep the _UMCBL suffix
-    const futuresSymbol = params.symbol.includes('_UMCBL') ? params.symbol : `${params.symbol}_UMCBL`;
-    
-    // Use v2 API format for futures orders
-    // For v2, use side: 'buy' or 'sell' directly
+    // In sandbox, do NOT append _UMCBL; use the base symbol as-is
     let symbol = params.symbol;
-    if (!symbol.endsWith('_UMCBL')) {
-      symbol = symbol + '_UMCBL';
+    if (this.config.sandbox) {
+      // Use the symbol as provided (e.g., BTCUSDT)
+    } else {
+      // In production, append _UMCBL if not present
+      if (!symbol.endsWith('_UMCBL')) {
+        symbol = symbol + '_UMCBL';
+      }
     }
 
     const orderData: any = {

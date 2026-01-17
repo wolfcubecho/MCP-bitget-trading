@@ -38,10 +38,6 @@ MCP (Model Context Protocol) server for Bitget cryptocurrency exchange. Enables 
 
 ### Prerequisites
 - Node.js 18+
-- npm or yarn
-- Bitget API credentials (for live/demo trading)
-
-### Quick Start
 
 1. **Clone the repository**
 ```bash
@@ -59,6 +55,55 @@ npm install
 cp .env.example .env
 # Edit .env with your Bitget API credentials
 ```
+## CLI Usage
+
+The `trade-command.js` script lets you place and manage trades using natural language.
+
+- Leverage: `10x`
+- Side: `long` | `short`
+- Symbol: `avax/usdt`, `btc/usdt` (auto-mapped to contracts like `BTC/USDT:USDT`)
+- Order: `@ market` or `@ limit <price>`
+- Amount: `amount <qty>` or `size <qty>`
+- Stop Loss: `sl <price|percent>` (e.g., `sl 95000`, `sl -1%`)
+- Take Profits: `tp <price|percent[@size|%] , ...>` (e.g., `tp 97000@50%, 98000@25%, 99000@25%`)
+- Modes: `isolated` | `cross`, and `oneway` | `hedged`
+- Sandbox: `sandbox` or `demo` (uses Bitget PAPTRADING)
+- Resting: `--resting` converts market to limit with offset; `--resting-depth <value|%>` (default `0.5%`)
+- One-way strict: `--oneway-strict` pre-flattens opposite positions and stages TP/SL separately
+- Hedged fallback: disabled with `--no-hedged-fallback` (sandbox may then error with unilateral constraints)
+- Maintenance: `flatten <symbol>` closes positions; `cancel tps <symbol>` cancels TP-like orders
+- Preview: `--dry-run` (no orders placed), `--json` for machine-readable output
+
+Examples:
+
+```bash
+node trade-command.js "10x short avax/usdt isolated hedged @ market amount 1 sl 12.5 tp 12.0@50%, 11.5@25%, 11.0@25% sandbox"
+node trade-command.js "5x long btc/usdt cross oneway @ limit 95000 amount 0.001 sl -1% tp 1%, 2%"
+node trade-command.js "10x long avax/usdt @ market amount 2 sl 13.0 tp 13.5@25%, 14.0@25%, 14.5@50% --resting --resting-depth 1%"
+node trade-command.js "flatten btc/usdt sandbox"
+node trade-command.js "cancel tps btc/usdt sandbox"
+node trade-command.js "3x long btc/usdt @ market amount 0.002 sl 95000 tp 97000, 98000 --dry-run --json"
+```
+
+### Demo vs Live (Mainnet)
+
+- Demo: set `BITGET_SANDBOX=true` in environment or add `sandbox` keyword in commands.
+- Live: set `BITGET_SANDBOX=false` (or omit), ensure live API keys are configured.
+- Claude MCP: provide the environment variables to your MCP server process as shown above; switching the flag toggles demo/mainnet.
+
+### Spot Margin (Optional)
+
+- Switch to spot mode by including `spot` in the command.
+- Borrow/Repay:
+  - Cross: `spot borrow usdt 100 cross`, `spot repay usdt 100 cross`
+  - Isolated: `spot borrow usdt 100 isolated btc/usdt`, `spot repay usdt 100 isolated btc/usdt`
+- Place spot margin orders:
+  - `spot buy avax/usdt isolated @ market amount 100` (market buy uses quote cost; limit uses base size)
+  - `spot sell avax/usdt cross @ limit 12.95 amount 10`
+
+Notes:
+- For spot market buy, `amount` represents quote cost; the CLI auto-supplies price for CCXT’s market-buy cost rules.
+- Set `marginMode` via `isolated` or `cross` to route orders through margin endpoints.
 
 4. **Build the project**
 ```bash
@@ -264,3 +309,31 @@ This software is for educational and development purposes. Use at your own risk.
 ---
 
 Made with ❤️ for the crypto trading community
+\n+## CLI Usage
+\n+The `trade-command.js` script lets you place and manage trades using natural language.
+\n+- Leverage: `10x`
+- Side: `long` | `short`
+- Symbol: `avax/usdt`, `btc/usdt` (auto-mapped to contracts like `BTC/USDT:USDT`)
+- Order: `@ market` or `@ limit <price>`
+- Amount: `amount <qty>` or `size <qty>`
+- Stop Loss: `sl <price|percent>` (e.g., `sl 95000`, `sl -1%`)
+- Take Profits: `tp <price|percent[@size|%] , ...>` (e.g., `tp 97000@50%, 98000@25%, 99000@25%`)
+- Modes: `isolated` | `cross`, and `oneway` | `hedged`
+- Sandbox: `sandbox` or `demo` (uses Bitget PAPTRADING)
+- Resting: `--resting` converts market to limit with offset; `--resting-depth <value|%>` (default `0.5%`)
+- One-way strict: `--oneway-strict` pre-flattens opposite positions and stages TP/SL separately
+- Hedged fallback: disabled with `--no-hedged-fallback` (sandbox may then error with unilateral constraints)
+- Maintenance: `flatten <symbol>` closes positions; `cancel tps <symbol>` cancels TP-like orders
+- Preview: `--dry-run` (no orders placed), `--json` for machine-readable output
+\n+Examples:
+\n+```bash
+node trade-command.js "10x short avax/usdt isolated hedged @ market amount 1 sl 12.5 tp 12.0@50%, 11.5@25%, 11.0@25% sandbox"
+node trade-command.js "5x long btc/usdt cross oneway @ limit 95000 amount 0.001 sl -1% tp 1%, 2%"
+node trade-command.js "10x long avax/usdt @ market amount 2 sl 13.0 tp 13.5@25%, 14.0@25%, 14.5@50% --resting --resting-depth 1%"
+node trade-command.js "flatten btc/usdt sandbox"
+node trade-command.js "cancel tps btc/usdt sandbox"
+node trade-command.js "3x long btc/usdt @ market amount 0.002 sl 95000 tp 97000, 98000 --dry-run --json"
+```
+\n+Notes:
+- In Bitget sandbox, some one-way entries may require hedged fallback. Use `--no-hedged-fallback` to fail fast instead.
+- TP/SL attachment to entries may be limited; strict one-way stages them as separate orders.
