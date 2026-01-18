@@ -38,10 +38,22 @@ async function main() {
   const slPrice = '13.14';
 
   // Ensure isolated margin mode before placing orders
+  console.log('Ensuring isolated margin mode: cancel orders, close positions, then set mode ...');
   try {
-    console.log('Ensuring isolated margin mode: cancel orders, close positions, then set mode ...');
-    await client.cancelAllFuturesOrders(symbol);
-    await client.closeAllPositions(symbol);
+    const cancelled = await client.cancelAllFuturesOrders(symbol);
+    if (!cancelled) console.warn('Cancel-all did not confirm, continuing.');
+  } catch (e: any) {
+    console.warn('Cancel-all raised an error, continuing:', e.message || e);
+  }
+
+  try {
+    const closed = await client.closeAllPositions(symbol);
+    if (!closed) console.warn('Close-all did not confirm, continuing.');
+  } catch (e: any) {
+    console.warn('Close-all raised an error, continuing:', e.message || e);
+  }
+
+  try {
     const ok = await client.setMarginMode('isolated', symbol);
     console.log('Set margin mode to isolated:', ok);
   } catch (e: any) {

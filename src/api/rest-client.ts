@@ -753,8 +753,17 @@ export class BitgetRestClient {
       marginCoin: 'USDT',
     };
     if (symbol) payload.symbol = symbol.replace('_UMCBL', '');
-    const response = await this.request<any>('POST', '/api/v2/mix/order/close-positions', payload, true);
-    return response.code === '00000';
+    try {
+      const response = await this.request<any>('POST', '/api/v2/mix/order/close-positions', payload, true);
+      return response.code === '00000';
+    } catch (err: any) {
+      const msg = (err?.message || '').toLowerCase();
+      // Treat benign cases as success when there is nothing to close
+      if (msg.includes('no position') || msg.includes('no positions') || msg.includes('code":"22001') || msg.includes('code":"24042')) {
+        return true;
+      }
+      throw err;
+    }
   }
 
   /**
@@ -1049,7 +1058,16 @@ export class BitgetRestClient {
       marginCoin: 'USDT',
     };
     if (symbol) payload.symbol = symbol.replace('_UMCBL', '');
-    const response = await this.request<any>('POST', '/api/v2/mix/order/cancel-all-orders', payload, true);
-    return response.code === '00000';
+    try {
+      const response = await this.request<any>('POST', '/api/v2/mix/order/cancel-all-orders', payload, true);
+      return response.code === '00000';
+    } catch (err: any) {
+      const msg = (err?.message || '').toLowerCase();
+      // Treat benign case "No order to cancel" as success
+      if (msg.includes('no order to cancel') || msg.includes('code":"22001')) {
+        return true;
+      }
+      throw err;
+    }
   }
 }
