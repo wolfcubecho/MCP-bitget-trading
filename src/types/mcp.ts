@@ -165,6 +165,11 @@ export const PlacePlanOrderSchema = z.object({
   clientOid: z.string().optional().describe('Client OID for plan order')
 });
 
+// Status summary of futures position and TPSL/plan orders
+export const GetFuturesStatusSchema = z.object({
+  symbol: z.string().optional().describe('Trading pair symbol (e.g., AVAXUSDT). If omitted, returns all.')
+});
+
 // Type exports for use in server
 export type GetPriceParams = z.infer<typeof GetPriceSchema>;
 export type GetTickerParams = z.infer<typeof GetTickerSchema>;
@@ -191,3 +196,4 @@ export type GetCurrentFundingRateParams = z.infer<typeof GetCurrentFundingRateSc
 export type GetHistoricFundingRatesParams = z.infer<typeof GetHistoricFundingRatesSchema>;
 export type GetFuturesContractsParams = z.infer<typeof GetFuturesContractsSchema>;
 export type PlacePlanOrderParams = z.infer<typeof PlacePlanOrderSchema>;
+export type GetFuturesStatusParams = z.infer<typeof GetFuturesStatusSchema>;

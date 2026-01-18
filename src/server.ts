@@ -41,6 +41,7 @@ import {
   GetHistoricFundingRatesSchema,
   GetFuturesContractsSchema,
   PlacePlanOrderSchema,
+  GetFuturesStatusSchema,
 } from './types/mcp.js';
 
 // Load environment variables
@@ -445,6 +446,17 @@ class BitgetMCPServer {
               required: ['symbol', 'planType', 'triggerPrice', 'holdSide', 'size']
             },
           },
+          {
+            name: 'getFuturesStatus',
+            description: 'Summarize current futures position, SL (pos_loss), and TP plan orders',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                symbol: { type: 'string', description: 'Trading pair symbol (optional)' }
+              },
+              required: []
+            },
+          },
         ],
       };
     });
@@ -823,6 +835,40 @@ class BitgetMCPServer {
             return {
               content: [
                 { type: 'text', text: ok ? 'Plan order placed successfully' : 'Failed to place plan order' },
+              ],
+            } as CallToolResult;
+          }
+
+          case 'getFuturesStatus': {
+            const { symbol } = GetFuturesStatusSchema.parse(args);
+            const positions = await this.bitgetClient.getFuturesPositions(symbol);
+            const plans = await this.bitgetClient.getFuturesPlanOrders(symbol, 'profit_loss');
+
+            // Filter plans for SL (pos_loss) and profit plans
+            const sl = plans.find((p: any) => p.planType === 'pos_loss');
+            const profitPlans = plans.filter((p: any) => p.planType === 'profit_plan');
+
+            const summary = {
+              symbol: symbol || 'ALL',
+              positions,
+              stopLoss: sl ? {
+                planType: sl.planType,
+                triggerPrice: sl.triggerPrice,
+                holdSide: sl.holdSide,
+                size: sl.size,
+                orderId: sl.orderId || sl.planId || sl.id,
+              } : null,
+              takeProfits: profitPlans.map((p: any) => ({
+                triggerPrice: p.triggerPrice,
+                size: p.size,
+                holdSide: p.holdSide,
+                orderId: p.orderId || p.planId || p.id,
+              })),
+            };
+
+            return {
+              content: [
+                { type: 'text', text: JSON.stringify(summary, null, 2) },
               ],
             } as CallToolResult;
           }
