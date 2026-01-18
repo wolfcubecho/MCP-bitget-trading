@@ -872,6 +872,7 @@ export class BitgetRestClient {
       holdSide: 'long' | 'short' | 'buy' | 'sell';
       size: string;
       clientOid?: string;
+      marginMode?: 'isolated' | 'crossed';
     }
   ): Promise<boolean> {
     const cleanSymbol = symbol.replace('_UMCBL', '');
@@ -885,6 +886,7 @@ export class BitgetRestClient {
       holdSide: options.holdSide,
       size: options.size,
     };
+    if (options.marginMode) payload.marginMode = options.marginMode;
     if (options.executePrice) payload.executePrice = options.executePrice;
     if (options.clientOid) payload.clientOid = options.clientOid;
 
@@ -905,6 +907,7 @@ export class BitgetRestClient {
       holdSide: 'long' | 'short' | 'buy' | 'sell';
       size: string;
       clientOid?: string;
+      marginMode?: 'isolated' | 'crossed';
     }
   ): Promise<boolean> {
     const cleanSymbol = symbol.replace('_UMCBL', '');
@@ -918,6 +921,7 @@ export class BitgetRestClient {
       holdSide: options.holdSide,
       size: options.size,
     };
+    if (options.marginMode) payload.marginMode = options.marginMode;
     if (options.executePrice) payload.executePrice = options.executePrice;
     if (options.clientOid) payload.clientOid = options.clientOid;
 

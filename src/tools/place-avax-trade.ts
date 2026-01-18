@@ -122,7 +122,7 @@ async function main() {
     const qty = tpQtys[i];
     const price = tpPrices[i];
     try {
-      // Place profit plan (multiple partial TPs). Using profit_plan allows multiple TPs.
+      // Place partial take-profit via TPSL endpoint (supports multiple profit_plan entries)
       const tpOk = await client.placeFuturesTPSL(symbol, {
         planType: 'profit_plan',
         triggerPrice: price,
@@ -130,6 +130,7 @@ async function main() {
         size: qty.toString(),
         triggerType: 'mark_price',
         clientOid: `avax-tp${i + 1}-${Date.now()}`,
+        marginMode: effectiveMarginMode,
       });
       console.log(`TP${i + 1} TPSL placed:`, tpOk);
     } catch (err: any) {
@@ -139,12 +140,25 @@ async function main() {
 
   console.log('All TP orders attempted; SL handled via TPSL.');
 
-  // Optional: list pending plan orders to verify multiple TP entries
+  // Status summary: positions + SL + all TP plan orders
   try {
-    const pending = await client.getFuturesPlanOrders(symbol, 'profit_loss');
-    console.log('Pending plan/TPSL orders:', JSON.stringify(pending, null, 2));
+    const positions = await client.getFuturesPositions(symbol);
+    const plans = await client.getFuturesPlanOrders(symbol, 'profit_loss');
+    const sl = plans.find((p: any) => p.planType === 'pos_loss');
+    const tps = plans.filter((p: any) => p.planType === 'profit_plan');
+    const summary = {
+      symbol,
+      positions,
+      stopLoss: sl ? {
+        triggerPrice: sl.triggerPrice,
+        holdSide: sl.holdSide,
+        size: sl.size,
+      } : null,
+      takeProfits: tps.map((p: any) => ({ triggerPrice: p.triggerPrice, size: p.size, holdSide: p.holdSide })),
+    };
+    console.log('Futures status summary:', JSON.stringify(summary, null, 2));
   } catch (e: any) {
-    console.warn('Could not retrieve plan orders:', e.message || e);
+    console.warn('Could not summarize futures status:', e.message || e);
   }
 }
 

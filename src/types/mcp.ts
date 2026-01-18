@@ -163,6 +163,8 @@ export const PlacePlanOrderSchema = z.object({
   holdSide: z.enum(['long', 'short', 'buy', 'sell']).describe('Position side'),
   size: z.string().describe('Quantity/size for plan order'),
   clientOid: z.string().optional().describe('Client OID for plan order')
+}).extend({
+  marginMode: z.enum(['isolated', 'crossed']).optional().describe('Margin mode for futures (default depends on account)')
 });
 
 // Status summary of futures position and TPSL/plan orders

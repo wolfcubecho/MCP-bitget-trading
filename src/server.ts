@@ -831,6 +831,7 @@ class BitgetMCPServer {
               holdSide: params.holdSide,
               size: params.size,
               clientOid: params.clientOid,
+              marginMode: params.marginMode,
             });
             return {
               content: [

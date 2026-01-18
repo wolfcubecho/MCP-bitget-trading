@@ -186,6 +186,14 @@ Add to your Claude Desktop MCP settings (`~/Library/Application Support/Claude/c
 | `cancelOrder` | Cancel order | `orderId: string, symbol: string` |
 | `setLeverage` | Set leverage | `symbol: string, leverage: number` |
 
+### Multiple Take Profits
+- Position-level TPSL supports one TP and one SL only.
+- Use plan orders (`profit_plan`) to stage multiple partial TPs.
+- Exposed tools: `placePlanOrder`, `getPlanOrders`, `cancelPlanOrder`, plus `placeTPSL`/`modifyTPSL` for SL.
+- The sample runner demonstrates this flow in [mcp/bitget-trading/src/tools/place-avax-trade.ts](mcp/bitget-trading/src/tools/place-avax-trade.ts).
+- Status: use the summary tool to list positions, SL, and all TP plans.
+- Margin: prefer isolated via order-level `marginMode`; global mode changes may be blocked if positions/orders exist.
+
 ## 🎮 Usage Examples
 
 ### Basic Price Check
