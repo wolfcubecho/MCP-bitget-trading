@@ -173,6 +173,7 @@ class BitgetMCPServer {
                 timeInForce: { type: 'string', enum: ['GTC', 'IOC', 'FOK'], description: 'Time in force' },
                 clientOrderId: { type: 'string', description: 'Client order ID' },
                 reduceOnly: { type: 'boolean', description: 'Reduce only flag for futures' },
+                tradeSide: { type: 'string', enum: ['open', 'close'], description: 'Unilateral position action (futures): open or close' },
                 marginMode: { type: 'string', enum: ['crossed', 'isolated'], description: 'Margin mode for futures (default: crossed)' },
                 marginCoin: { type: 'string', description: 'Margin coin for futures (default: USDT)' }
               },

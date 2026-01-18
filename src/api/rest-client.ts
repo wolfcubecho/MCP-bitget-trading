@@ -351,17 +351,20 @@ export class BitgetRestClient {
     let price: string = '';
     
     if (this.isFuturesSymbol(symbol)) {
-      // Futures ticker
-      const futuresSymbol = symbol.includes('_UMCBL') ? symbol : `${symbol}_UMCBL`;
-      const response = await this.request<any>('GET', '/api/mix/v1/market/ticker', { symbol: futuresSymbol });
+      // Futures ticker (v2 API requires symbol without _UMCBL and productType)
+      const cleanSymbol = symbol.replace('_UMCBL', '');
+      const response = await this.request<any>('GET', '/api/v2/mix/market/ticker', { 
+        symbol: cleanSymbol,
+        productType: 'USDT-FUTURES'
+      });
       if (response.data?.last) {
         price = response.data.last;
       } else {
         throw new Error(`Price not found for symbol: ${symbol}`);
       }
     } else {
-      // Spot ticker - use v1 public API
-      const response = await this.request<any>('GET', '/api/spot/v1/market/tickers', {});
+      // Spot ticker - use v2 public API
+      const response = await this.request<any>('GET', '/api/v2/spot/market/tickers', {});
       if (response.data && Array.isArray(response.data)) {
         const ticker = response.data.find((t: any) => t.symbol === symbol);
         if (ticker) {
@@ -405,9 +408,12 @@ export class BitgetRestClient {
     };
     
     if (this.isFuturesSymbol(symbol)) {
-      // Futures ticker
-      const futuresSymbol = symbol.includes('_UMCBL') ? symbol : `${symbol}_UMCBL`;
-      const response = await this.request<any>('GET', '/api/mix/v1/market/ticker', { symbol: futuresSymbol });
+      // Futures ticker (v2 API requires symbol without _UMCBL and productType)
+      const cleanSymbol = symbol.replace('_UMCBL', '');
+      const response = await this.request<any>('GET', '/api/v2/mix/market/ticker', { 
+        symbol: cleanSymbol,
+        productType: 'USDT-FUTURES'
+      });
       if (response.data) {
         const tickerData = response.data;
         ticker = {
@@ -426,8 +432,8 @@ export class BitgetRestClient {
         throw new Error(`Ticker not found for symbol: ${symbol}`);
       }
     } else {
-      // Spot ticker - use v1 public API
-      const response = await this.request<any>('GET', '/api/spot/v1/market/tickers', {});
+      // Spot ticker - use v2 public API
+      const response = await this.request<any>('GET', '/api/v2/spot/market/tickers', {});
       if (response.data && Array.isArray(response.data)) {
         const tickerData = response.data.find((t: any) => t.symbol === symbol);
         if (tickerData) {
@@ -476,15 +482,16 @@ export class BitgetRestClient {
     };
     
     if (this.isFuturesSymbol(symbol)) {
-      // Futures orderbook
-      const futuresSymbol = symbol.includes('_UMCBL') ? symbol : `${symbol}_UMCBL`;
-      const response = await this.request<any>('GET', '/api/mix/v1/market/depth', { 
-        symbol: futuresSymbol,
+      // Futures orderbook (v2 API requires symbol without _UMCBL and productType)
+      const cleanSymbol = symbol.replace('_UMCBL', '');
+      const response = await this.request<any>('GET', '/api/v2/mix/market/depth', { 
+        symbol: cleanSymbol,
+        productType: 'USDT-FUTURES',
         limit: depth.toString()
       });
       
       orderBook = {
-        symbol: futuresSymbol,
+        symbol: symbol,
         bids: response.data?.bids || [],
         asks: response.data?.asks || [],
         timestamp: response.data?.timestamp || Date.now()
@@ -653,8 +660,11 @@ export class BitgetRestClient {
       }
     }
 
+    // For v2 mix endpoints, symbol should be the base symbol (no _UMCBL)
+    const cleanSymbol = symbol.replace('_UMCBL', '');
+
     const orderData: any = {
-      symbol,
+      symbol: cleanSymbol,
       productType: 'USDT-FUTURES',
       marginCoin: params.marginCoin || 'USDT',
       marginMode: params.marginMode || 'crossed',
@@ -677,8 +687,16 @@ export class BitgetRestClient {
       orderData.clientOid = params.clientOrderId;
     }
 
-    if (params.reduceOnly) {
-      orderData.reduceOnly = params.reduceOnly;
+    // Unilateral position mode support: tradeSide 'open' | 'close'
+    if (params.tradeSide) {
+      orderData.tradeSide = params.tradeSide;
+      // Do not include reduceOnly; tradeSide governs close/open semantics in v2
+    } else if (params.reduceOnly === true) {
+      orderData.tradeSide = 'close';
+      // Do not include reduceOnly
+    } else {
+      orderData.tradeSide = 'open';
+      // Do not include reduceOnly
     }
 
     console.error('Placing futures order with data:', JSON.stringify(orderData, null, 2));

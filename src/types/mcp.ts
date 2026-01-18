@@ -44,6 +44,7 @@ export const PlaceOrderSchema = z.object({
   timeInForce: z.enum(['GTC', 'IOC', 'FOK']).optional().describe('Time in force'),
   clientOrderId: z.string().optional().describe('Client order ID'),
   reduceOnly: z.boolean().optional().describe('Reduce only flag for futures'),
+  tradeSide: z.enum(['open', 'close']).optional().describe('Unilateral position action: open or close (futures)'),
   marginMode: z.enum(['crossed', 'isolated']).optional().describe('Margin mode for futures (default: crossed)'),
   marginCoin: z.string().optional().describe('Margin coin for futures (default: USDT)')
 });

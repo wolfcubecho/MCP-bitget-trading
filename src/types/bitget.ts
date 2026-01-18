@@ -53,6 +53,7 @@ export interface OrderParams {
   timeInForce?: 'GTC' | 'IOC' | 'FOK';
   clientOrderId?: string;
   reduceOnly?: boolean;
+  tradeSide?: 'open' | 'close';
   marginMode?: 'crossed' | 'isolated';
   marginCoin?: string;
 }
