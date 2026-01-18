@@ -31,6 +31,15 @@ import {
   GetPositionsSchema,
   SetLeverageSchema,
   GetMarginInfoSchema,
+  PlaceTPSLSchema,
+  GetPlanOrdersSchema,
+  CancelPlanOrderSchema,
+  ModifyTPSLSchema,
+  SetMarginModeSchema,
+  CloseAllPositionsSchema,
+  GetCurrentFundingRateSchema,
+  GetHistoricFundingRatesSchema,
+  GetFuturesContractsSchema,
 } from './types/mcp.js';
 
 // Load environment variables
@@ -302,6 +311,121 @@ class BitgetMCPServer {
               required: []
             },
           },
+          // Futures TPSL / Plan Orders
+          {
+            name: 'placeTPSL',
+            description: 'Place a futures TP/SL (TPSL) trigger order',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                symbol: { type: 'string', description: 'Trading pair symbol (e.g., AVAXUSDT)' },
+                planType: { type: 'string', enum: ['pos_profit', 'pos_loss', 'profit_plan', 'loss_plan', 'moving_plan'], description: 'TPSL plan type' },
+                triggerPrice: { type: 'string', description: 'Trigger price for TP/SL' },
+                triggerType: { type: 'string', enum: ['fill_price', 'mark_price'], description: 'Trigger type (default: mark_price)' },
+                executePrice: { type: 'string', description: 'Execution price for limit (omit for market)' },
+                holdSide: { type: 'string', enum: ['long', 'short', 'buy', 'sell'], description: 'Position side to apply' },
+                size: { type: 'string', description: 'Quantity/size for TPSL' },
+                clientOid: { type: 'string', description: 'Client OID for TPSL order' }
+              },
+              required: ['symbol', 'planType', 'triggerPrice', 'holdSide', 'size']
+            },
+          },
+          {
+            name: 'getPlanOrders',
+            description: 'List pending futures plan orders (including TPSL)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                symbol: { type: 'string', description: 'Filter by symbol (e.g., AVAXUSDT)' },
+                planType: { type: 'string', enum: ['normal_plan', 'track_plan', 'profit_loss'], description: 'Plan type filter (default: profit_loss)' }
+              },
+              required: []
+            },
+          },
+          {
+            name: 'cancelPlanOrder',
+            description: 'Cancel a futures plan order (by orderId or clientOid)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                symbol: { type: 'string', description: 'Trading pair symbol (optional)' },
+                orderId: { type: 'string', description: 'Plan order ID to cancel (optional)' },
+                clientOid: { type: 'string', description: 'Plan order client OID to cancel (optional)' },
+                planType: { type: 'string', enum: ['normal_plan', 'track_plan', 'profit_loss'], description: 'Plan type (default: profit_loss)' }
+              },
+              required: []
+            },
+          },
+          {
+            name: 'modifyTPSL',
+            description: 'Modify futures TP/SL prices on existing position/order',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                symbol: { type: 'string', description: 'Trading pair symbol (e.g., AVAXUSDT)' },
+                stopSurplusPrice: { type: 'string', description: 'Take profit price to set/modify' },
+                stopLossPrice: { type: 'string', description: 'Stop loss price to set/modify' },
+              },
+              required: ['symbol']
+            },
+          },
+          // Futures account & risk tools
+          {
+            name: 'setMarginMode',
+            description: 'Set futures margin mode (isolated or crossed)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                symbol: { type: 'string', description: 'Trading pair symbol (optional)' },
+                marginMode: { type: 'string', enum: ['isolated', 'crossed'], description: 'Margin mode to set' }
+              },
+              required: ['marginMode']
+            },
+          },
+          {
+            name: 'closeAllPositions',
+            description: 'Close all futures positions (optionally for a single symbol)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                symbol: { type: 'string', description: 'Trading pair symbol to close (optional)' }
+              },
+              required: []
+            },
+          },
+          {
+            name: 'getCurrentFundingRate',
+            description: 'Get current funding rate for a futures symbol',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                symbol: { type: 'string', description: 'Trading pair symbol (e.g., AVAXUSDT)' }
+              },
+              required: ['symbol']
+            },
+          },
+          {
+            name: 'getHistoricFundingRates',
+            description: 'Get historical funding rates for a futures symbol',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                symbol: { type: 'string', description: 'Trading pair symbol (e.g., AVAXUSDT)' }
+              },
+              required: ['symbol']
+            },
+          },
+          {
+            name: 'getFuturesContracts',
+            description: 'List futures contracts configuration',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                productType: { type: 'string', enum: ['USDT-FUTURES'], description: 'Product type (default: USDT-FUTURES)' }
+              },
+              required: []
+            },
+          },
         ],
       };
     });
@@ -554,6 +678,114 @@ class BitgetMCPServer {
                   type: 'text',
                   text: JSON.stringify(status, null, 2),
                 },
+              ],
+            } as CallToolResult;
+          }
+
+          // Futures TPSL / Plan Orders
+          case 'placeTPSL': {
+            const params = PlaceTPSLSchema.parse(args);
+            const ok = await this.bitgetClient.placeFuturesTPSL(params.symbol, {
+              planType: params.planType,
+              triggerPrice: params.triggerPrice,
+              triggerType: params.triggerType,
+              executePrice: params.executePrice,
+              holdSide: params.holdSide,
+              size: params.size,
+              clientOid: params.clientOid,
+            });
+            return {
+              content: [
+                { type: 'text', text: ok ? 'TPSL placed successfully' : 'Failed to place TPSL' },
+              ],
+            } as CallToolResult;
+          }
+
+          case 'getPlanOrders': {
+            const params = GetPlanOrdersSchema.parse(args);
+            const list = await this.bitgetClient.getFuturesPlanOrders(params.symbol, params.planType || 'profit_loss');
+            return {
+              content: [
+                { type: 'text', text: JSON.stringify(list, null, 2) },
+              ],
+            } as CallToolResult;
+          }
+
+          case 'cancelPlanOrder': {
+            const params = CancelPlanOrderSchema.parse(args);
+            const ok = await this.bitgetClient.cancelFuturesPlanOrder({
+              symbol: params.symbol,
+              orderId: params.orderId,
+              clientOid: params.clientOid,
+              planType: params.planType || 'profit_loss',
+            });
+            return {
+              content: [
+                { type: 'text', text: ok ? 'Plan order cancelled successfully' : 'Failed to cancel plan order' },
+              ],
+            } as CallToolResult;
+          }
+
+          case 'modifyTPSL': {
+            const params = ModifyTPSLSchema.parse(args);
+            const ok = await this.bitgetClient.modifyFuturesTPSL(params.symbol, {
+              stopSurplusPrice: params.stopSurplusPrice,
+              stopLossPrice: params.stopLossPrice,
+            });
+            return {
+              content: [
+                { type: 'text', text: ok ? 'TPSL modified successfully' : 'Failed to modify TPSL' },
+              ],
+            } as CallToolResult;
+          }
+
+          // Futures account & risk tools
+          case 'setMarginMode': {
+            const params = SetMarginModeSchema.parse(args);
+            const ok = await this.bitgetClient.setMarginMode(params.marginMode, params.symbol);
+            return {
+              content: [
+                { type: 'text', text: ok ? `Margin mode set to ${params.marginMode}` : 'Failed to set margin mode' },
+              ],
+            } as CallToolResult;
+          }
+
+          case 'closeAllPositions': {
+            const params = CloseAllPositionsSchema.parse(args);
+            const ok = await this.bitgetClient.closeAllPositions(params.symbol);
+            return {
+              content: [
+                { type: 'text', text: ok ? 'Positions closed successfully' : 'Failed to close positions' },
+              ],
+            } as CallToolResult;
+          }
+
+          case 'getCurrentFundingRate': {
+            const params = GetCurrentFundingRateSchema.parse(args);
+            const data = await this.bitgetClient.getCurrentFundingRate(params.symbol);
+            return {
+              content: [
+                { type: 'text', text: JSON.stringify(data, null, 2) },
+              ],
+            } as CallToolResult;
+          }
+
+          case 'getHistoricFundingRates': {
+            const params = GetHistoricFundingRatesSchema.parse(args);
+            const data = await this.bitgetClient.getHistoricFundingRates(params.symbol);
+            return {
+              content: [
+                { type: 'text', text: JSON.stringify(data, null, 2) },
+              ],
+            } as CallToolResult;
+          }
+
+          case 'getFuturesContracts': {
+            const _ = GetFuturesContractsSchema.parse(args);
+            const data = await this.bitgetClient.getFuturesContracts();
+            return {
+              content: [
+                { type: 'text', text: JSON.stringify(data, null, 2) },
               ],
             } as CallToolResult;
           }

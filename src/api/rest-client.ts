@@ -253,11 +253,18 @@ export class BitgetRestClient {
           bodyLength: body.length
         });
 
+        // Add a timeout to prevent hangs
+        const controller = new AbortController();
+        const timeoutMs = 25000; // 25s timeout
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
         const response = await fetch(url, {
           method,
           headers,
           body: method === 'POST' ? body : undefined,
+          signal: controller.signal,
         });
+        clearTimeout(timeout);
 
         let responseBody: string | undefined;
         let data: APIResponse<T> | undefined;
@@ -667,11 +674,14 @@ export class BitgetRestClient {
       symbol: cleanSymbol,
       productType: 'USDT-FUTURES',
       marginCoin: params.marginCoin || 'USDT',
-      marginMode: params.marginMode || 'crossed',
       side: params.side,
       orderType: params.type,
       size: params.quantity,  // For futures, this is in contracts
     };
+    // Only include marginMode if explicitly provided; avoid implicit account mode change errors
+    if (params.marginMode) {
+      orderData.marginMode = params.marginMode;
+    }
 
     if (params.type === 'limit' && params.price) {
       orderData.price = params.price;
@@ -721,6 +731,59 @@ export class BitgetRestClient {
   }
 
   /**
+   * Set futures margin mode (isolated or crossed)
+   */
+  async setMarginMode(marginMode: 'isolated' | 'crossed', symbol?: string): Promise<boolean> {
+    const payload: any = {
+      productType: 'USDT-FUTURES',
+      marginCoin: 'USDT',
+      marginMode,
+    };
+    if (symbol) payload.symbol = symbol.replace('_UMCBL', '');
+    const response = await this.request<any>('POST', '/api/v2/mix/account/set-margin-mode', payload, true);
+    return response.code === '00000';
+  }
+
+  /**
+   * Close all positions for a futures symbol or all symbols if none provided
+   */
+  async closeAllPositions(symbol?: string): Promise<boolean> {
+    const payload: any = {
+      productType: 'USDT-FUTURES',
+      marginCoin: 'USDT',
+    };
+    if (symbol) payload.symbol = symbol.replace('_UMCBL', '');
+    const response = await this.request<any>('POST', '/api/v2/mix/order/close-positions', payload, true);
+    return response.code === '00000';
+  }
+
+  /**
+   * Get current funding rate for a futures symbol
+   */
+  async getCurrentFundingRate(symbol: string): Promise<any> {
+    const params: any = { symbol: symbol.replace('_UMCBL', '') };
+    const response = await this.request<any>('GET', '/api/v2/mix/market/current-fund-rate', params, false);
+    return response.data;
+  }
+
+  /**
+   * Get historical funding rates for a futures symbol
+   */
+  async getHistoricFundingRates(symbol: string): Promise<any[]> {
+    const params: any = { symbol: symbol.replace('_UMCBL', '') };
+    const response = await this.request<any>('GET', '/api/v2/mix/market/history-fund-rate', params, false);
+    return response.data || [];
+  }
+
+  /**
+   * List futures contracts configuration
+   */
+  async getFuturesContracts(): Promise<any[]> {
+    const response = await this.request<any>('GET', '/api/v2/mix/market/contracts', { productType: 'USDT-FUTURES' }, false);
+    return response.data || [];
+  }
+
+  /**
    * Cancel an order (automatically detects spot vs futures)
    */
   async cancelOrder(orderId: string, symbol: string): Promise<boolean> {
@@ -757,6 +820,66 @@ export class BitgetRestClient {
       marginCoin: 'USDT'
     }, true);
 
+    return response.code === '00000';
+  }
+
+  /**
+   * Modify TPSL (Take Profit / Stop Loss) for futures position or order
+   * Pass at least one of stopSurplusPrice (TP) or stopLossPrice (SL)
+   */
+  async modifyFuturesTPSL(
+    symbol: string,
+    options: { stopSurplusPrice?: string; stopLossPrice?: string }
+  ): Promise<boolean> {
+    const cleanSymbol = symbol.replace('_UMCBL', '');
+    const payload: any = {
+      symbol: cleanSymbol,
+      productType: 'USDT-FUTURES',
+      marginCoin: 'USDT',
+    };
+    if (options.stopSurplusPrice) payload.stopSurplusPrice = options.stopSurplusPrice;
+    if (options.stopLossPrice) payload.stopLossPrice = options.stopLossPrice;
+
+    if (!payload.stopSurplusPrice && !payload.stopLossPrice) {
+      throw new Error('modifyFuturesTPSL requires stopSurplusPrice or stopLossPrice');
+    }
+
+    // Use v2 mix modify TPSL endpoint
+    const response = await this.request<any>('POST', '/api/v2/mix/order/modify-tpsl-order', payload, true);
+    return response.code === '00000';
+  }
+
+  /**
+   * Place a TPSL order (trigger-based TP/SL) for futures
+   * Useful to attach new TP/SL when opening a position
+   */
+  async placeFuturesTPSL(
+    symbol: string,
+    options: {
+      planType: 'pos_profit' | 'pos_loss' | 'profit_plan' | 'loss_plan' | 'moving_plan';
+      triggerPrice: string;
+      triggerType?: 'fill_price' | 'mark_price';
+      executePrice?: string;
+      holdSide: 'long' | 'short' | 'buy' | 'sell';
+      size: string;
+      clientOid?: string;
+    }
+  ): Promise<boolean> {
+    const cleanSymbol = symbol.replace('_UMCBL', '');
+    const payload: any = {
+      symbol: cleanSymbol,
+      productType: 'USDT-FUTURES',
+      marginCoin: 'USDT',
+      planType: options.planType,
+      triggerPrice: options.triggerPrice,
+      triggerType: options.triggerType || 'mark_price',
+      holdSide: options.holdSide,
+      size: options.size,
+    };
+    if (options.executePrice) payload.executePrice = options.executePrice;
+    if (options.clientOid) payload.clientOid = options.clientOid;
+
+    const response = await this.request<any>('POST', '/api/v2/mix/order/place-tpsl-order', payload, true);
     return response.code === '00000';
   }
 
@@ -884,5 +1007,49 @@ export class BitgetRestClient {
 
     const response = await this.request<any>('GET', '/api/v2/mix/account/accounts', params, true);
     return response.data;
+  }
+
+  /**
+   * List pending futures plan orders (including TPSL)
+   */
+  async getFuturesPlanOrders(symbol?: string, planType: 'normal_plan' | 'track_plan' | 'profit_loss' = 'profit_loss'): Promise<any[]> {
+    const params: any = {
+      productType: 'USDT-FUTURES',
+      planType,
+    };
+    if (symbol) params.symbol = symbol.replace('_UMCBL', '');
+
+    const response = await this.request<any>('GET', '/api/v2/mix/order/orders-plan-pending', params, true);
+    return response.data?.entrustedList || [];
+  }
+
+  /**
+   * Cancel a futures plan order (by orderId or clientOid)
+   */
+  async cancelFuturesPlanOrder(options: { symbol?: string; orderId?: string; clientOid?: string; planType?: 'normal_plan' | 'track_plan' | 'profit_loss' }): Promise<boolean> {
+    const payload: any = {
+      productType: 'USDT-FUTURES',
+      marginCoin: 'USDT',
+      planType: options.planType || 'profit_loss',
+    };
+    if (options.symbol) payload.symbol = options.symbol.replace('_UMCBL', '');
+    if (options.orderId) payload.orderIdList = [{ orderId: options.orderId }];
+    if (options.clientOid) payload.orderIdList = [{ clientOid: options.clientOid }];
+
+    const response = await this.request<any>('POST', '/api/v2/mix/order/cancel-plan-order', payload, true);
+    return response.code === '00000';
+  }
+
+  /**
+   * Cancel all futures orders, optionally just for a symbol
+   */
+  async cancelAllFuturesOrders(symbol?: string): Promise<boolean> {
+    const payload: any = {
+      productType: 'USDT-FUTURES',
+      marginCoin: 'USDT',
+    };
+    if (symbol) payload.symbol = symbol.replace('_UMCBL', '');
+    const response = await this.request<any>('POST', '/api/v2/mix/order/cancel-all-orders', payload, true);
+    return response.code === '00000';
   }
 }

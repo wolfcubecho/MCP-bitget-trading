@@ -95,6 +95,64 @@ export const GetMarginInfoSchema = z.object({
   symbol: z.string().optional().describe('Filter by symbol')
 });
 
+// TPSL / Plan order Schemas (Futures)
+export const PlaceTPSLSchema = z.object({
+  symbol: z.string().describe('Trading pair symbol (e.g., AVAXUSDT)'),
+  planType: z.enum(['pos_profit', 'pos_loss', 'profit_plan', 'loss_plan', 'moving_plan']).describe('TPSL plan type'),
+  triggerPrice: z.string().describe('Trigger price for TP/SL'),
+  triggerType: z.enum(['fill_price', 'mark_price']).optional().describe('Trigger type (default: mark_price)'),
+  executePrice: z.string().optional().describe('Execution price for limit TP/SL (omit for market)'),
+  holdSide: z.enum(['long', 'short', 'buy', 'sell']).describe('Position side to apply'),
+  size: z.string().describe('Quantity/size for TPSL'),
+  clientOid: z.string().optional().describe('Client OID for TPSL order')
+});
+
+export const GetPlanOrdersSchema = z.object({
+  symbol: z.string().optional().describe('Filter by symbol'),
+  planType: z.enum(['normal_plan', 'track_plan', 'profit_loss']).optional().describe('Plan type filter (default: profit_loss)')
+});
+
+export const CancelPlanOrderSchema = z.object({
+  symbol: z.string().optional().describe('Trading pair symbol'),
+  orderId: z.string().optional().describe('Plan order ID to cancel'),
+  clientOid: z.string().optional().describe('Plan order client OID to cancel'),
+  planType: z.enum(['normal_plan', 'track_plan', 'profit_loss']).optional().describe('Plan type (default: profit_loss)')
+}).refine((data) => !!(data.orderId || data.clientOid), {
+  message: 'Either orderId or clientOid is required',
+  path: ['orderId']
+});
+
+export const ModifyTPSLSchema = z.object({
+  symbol: z.string().describe('Trading pair symbol (e.g., AVAXUSDT)'),
+  stopSurplusPrice: z.string().optional().describe('Take profit price to set/modify'),
+  stopLossPrice: z.string().optional().describe('Stop loss price to set/modify')
+}).refine((data) => !!(data.stopSurplusPrice || data.stopLossPrice), {
+  message: 'Provide at least stopSurplusPrice or stopLossPrice',
+  path: ['stopSurplusPrice']
+});
+
+// Futures account & risk
+export const SetMarginModeSchema = z.object({
+  symbol: z.string().optional().describe('Trading pair symbol (optional)'),
+  marginMode: z.enum(['isolated', 'crossed']).describe('Margin mode to set')
+});
+
+export const CloseAllPositionsSchema = z.object({
+  symbol: z.string().optional().describe('Trading pair symbol to close (optional)')
+});
+
+export const GetCurrentFundingRateSchema = z.object({
+  symbol: z.string().describe('Trading pair symbol (e.g., AVAXUSDT)')
+});
+
+export const GetHistoricFundingRatesSchema = z.object({
+  symbol: z.string().describe('Trading pair symbol (e.g., AVAXUSDT)')
+});
+
+export const GetFuturesContractsSchema = z.object({
+  productType: z.literal('USDT-FUTURES').optional().describe('Product type (defaults to USDT-FUTURES)')
+});
+
 // Type exports for use in server
 export type GetPriceParams = z.infer<typeof GetPriceSchema>;
 export type GetTickerParams = z.infer<typeof GetTickerSchema>;
@@ -111,3 +169,12 @@ export type SubscribeOrderBookParams = z.infer<typeof SubscribeOrderBookSchema>;
 export type UnsubscribeParams = z.infer<typeof UnsubscribeSchema>;
 export type SetLeverageParams = z.infer<typeof SetLeverageSchema>;
 export type GetMarginInfoParams = z.infer<typeof GetMarginInfoSchema>;
+export type PlaceTPSLParams = z.infer<typeof PlaceTPSLSchema>;
+export type GetPlanOrdersParams = z.infer<typeof GetPlanOrdersSchema>;
+export type CancelPlanOrderParams = z.infer<typeof CancelPlanOrderSchema>;
+export type ModifyTPSLParams = z.infer<typeof ModifyTPSLSchema>;
+export type SetMarginModeParams = z.infer<typeof SetMarginModeSchema>;
+export type CloseAllPositionsParams = z.infer<typeof CloseAllPositionsSchema>;
+export type GetCurrentFundingRateParams = z.infer<typeof GetCurrentFundingRateSchema>;
+export type GetHistoricFundingRatesParams = z.infer<typeof GetHistoricFundingRatesSchema>;
+export type GetFuturesContractsParams = z.infer<typeof GetFuturesContractsSchema>;
