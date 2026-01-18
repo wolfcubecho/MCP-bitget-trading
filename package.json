@@ -11,7 +11,8 @@
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
-    "trade:avax": "tsx src/tools/place-avax-trade.ts"
+    "trade:avax": "tsx src/tools/place-avax-trade.ts",
+    "trade:btc": "tsx src/tools/place-btc-trade.ts"
   },
   "keywords": [
     "mcp",
