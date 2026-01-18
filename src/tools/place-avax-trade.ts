@@ -122,9 +122,9 @@ async function main() {
     const qty = tpQtys[i];
     const price = tpPrices[i];
     try {
-      // Place TPSL Take Profit (market at trigger to avoid limit ratio errors)
+      // Place profit plan (multiple partial TPs). Using profit_plan allows multiple TPs.
       const tpOk = await client.placeFuturesTPSL(symbol, {
-        planType: 'pos_profit',
+        planType: 'profit_plan',
         triggerPrice: price,
         holdSide: 'long',
         size: qty.toString(),
@@ -138,6 +138,14 @@ async function main() {
   }
 
   console.log('All TP orders attempted; SL handled via TPSL.');
+
+  // Optional: list pending plan orders to verify multiple TP entries
+  try {
+    const pending = await client.getFuturesPlanOrders(symbol, 'profit_loss');
+    console.log('Pending plan/TPSL orders:', JSON.stringify(pending, null, 2));
+  } catch (e: any) {
+    console.warn('Could not retrieve plan orders:', e.message || e);
+  }
 }
 
 main().catch((e) => {
