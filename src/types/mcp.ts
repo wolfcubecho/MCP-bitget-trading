@@ -153,6 +153,18 @@ export const GetFuturesContractsSchema = z.object({
   productType: z.literal('USDT-FUTURES').optional().describe('Product type (defaults to USDT-FUTURES)')
 });
 
+// Plan orders (explicit)
+export const PlacePlanOrderSchema = z.object({
+  symbol: z.string().describe('Trading pair symbol (e.g., AVAXUSDT)'),
+  planType: z.enum(['profit_plan', 'loss_plan', 'moving_plan']).describe('Plan order type'),
+  triggerPrice: z.string().describe('Trigger price for plan order'),
+  triggerType: z.enum(['fill_price', 'mark_price']).optional().describe('Trigger type (default: mark_price)'),
+  executePrice: z.string().optional().describe('Execution price for limit plan order'),
+  holdSide: z.enum(['long', 'short', 'buy', 'sell']).describe('Position side'),
+  size: z.string().describe('Quantity/size for plan order'),
+  clientOid: z.string().optional().describe('Client OID for plan order')
+});
+
 // Type exports for use in server
 export type GetPriceParams = z.infer<typeof GetPriceSchema>;
 export type GetTickerParams = z.infer<typeof GetTickerSchema>;
@@ -178,3 +190,4 @@ export type CloseAllPositionsParams = z.infer<typeof CloseAllPositionsSchema>;
 export type GetCurrentFundingRateParams = z.infer<typeof GetCurrentFundingRateSchema>;
 export type GetHistoricFundingRatesParams = z.infer<typeof GetHistoricFundingRatesSchema>;
 export type GetFuturesContractsParams = z.infer<typeof GetFuturesContractsSchema>;
+export type PlacePlanOrderParams = z.infer<typeof PlacePlanOrderSchema>;

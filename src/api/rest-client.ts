@@ -893,6 +893,39 @@ export class BitgetRestClient {
   }
 
   /**
+   * Place a futures plan order (profit/loss/moving) to allow multiple take-profits or loss plans
+   */
+  async placeFuturesPlanOrder(
+    symbol: string,
+    options: {
+      planType: 'profit_plan' | 'loss_plan' | 'moving_plan';
+      triggerPrice: string;
+      triggerType?: 'fill_price' | 'mark_price';
+      executePrice?: string;
+      holdSide: 'long' | 'short' | 'buy' | 'sell';
+      size: string;
+      clientOid?: string;
+    }
+  ): Promise<boolean> {
+    const cleanSymbol = symbol.replace('_UMCBL', '');
+    const payload: any = {
+      symbol: cleanSymbol,
+      productType: 'USDT-FUTURES',
+      marginCoin: 'USDT',
+      planType: options.planType,
+      triggerPrice: options.triggerPrice,
+      triggerType: options.triggerType || 'mark_price',
+      holdSide: options.holdSide,
+      size: options.size,
+    };
+    if (options.executePrice) payload.executePrice = options.executePrice;
+    if (options.clientOid) payload.clientOid = options.clientOid;
+
+    const response = await this.request<any>('POST', '/api/v2/mix/order/place-plan-order', payload, true);
+    return response.code === '00000';
+  }
+
+  /**
    * Get open orders (supports both spot and futures)
    */
   async getOrders(symbol?: string, status?: string): Promise<Order[]> {

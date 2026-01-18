@@ -40,6 +40,7 @@ import {
   GetCurrentFundingRateSchema,
   GetHistoricFundingRatesSchema,
   GetFuturesContractsSchema,
+  PlacePlanOrderSchema,
 } from './types/mcp.js';
 
 // Load environment variables
@@ -426,6 +427,24 @@ class BitgetMCPServer {
               required: []
             },
           },
+          {
+            name: 'placePlanOrder',
+            description: 'Place a futures plan order (profit/loss/moving)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                symbol: { type: 'string', description: 'Trading pair symbol (e.g., AVAXUSDT)' },
+                planType: { type: 'string', enum: ['profit_plan', 'loss_plan', 'moving_plan'], description: 'Plan order type' },
+                triggerPrice: { type: 'string', description: 'Trigger price' },
+                triggerType: { type: 'string', enum: ['fill_price', 'mark_price'], description: 'Trigger type (default: mark_price)' },
+                executePrice: { type: 'string', description: 'Execution price for limit (omit for market)' },
+                holdSide: { type: 'string', enum: ['long', 'short', 'buy', 'sell'], description: 'Position side' },
+                size: { type: 'string', description: 'Quantity/size' },
+                clientOid: { type: 'string', description: 'Client OID' },
+              },
+              required: ['symbol', 'planType', 'triggerPrice', 'holdSide', 'size']
+            },
+          },
         ],
       };
     });
@@ -786,6 +805,24 @@ class BitgetMCPServer {
             return {
               content: [
                 { type: 'text', text: JSON.stringify(data, null, 2) },
+              ],
+            } as CallToolResult;
+          }
+
+          case 'placePlanOrder': {
+            const params = PlacePlanOrderSchema.parse(args);
+            const ok = await this.bitgetClient.placeFuturesPlanOrder(params.symbol, {
+              planType: params.planType,
+              triggerPrice: params.triggerPrice,
+              triggerType: params.triggerType,
+              executePrice: params.executePrice,
+              holdSide: params.holdSide,
+              size: params.size,
+              clientOid: params.clientOid,
+            });
+            return {
+              content: [
+                { type: 'text', text: ok ? 'Plan order placed successfully' : 'Failed to place plan order' },
               ],
             } as CallToolResult;
           }
