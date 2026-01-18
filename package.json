@@ -10,6 +10,7 @@
     "dev": "tsx watch src/server.ts",
     "test": "jest",
     "diag": "node ./diagnostic-test.js",
+    "test:avax": "node ./avax-futures-test.js",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts"
   },
