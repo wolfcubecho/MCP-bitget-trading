@@ -11,12 +11,14 @@ export const GetPriceSchema = z.object({
 });
 
 export const GetTickerSchema = z.object({
-  symbol: z.string().describe('Trading pair symbol (BTCUSDT for spot, BTCUSDT_UMCBL for futures)')
+  symbol: z.string().describe('Trading pair symbol (BTCUSDT for spot, BTCUSDT_UMCBL for futures)'),
+  compact: z.boolean().optional().describe('If true, returns a trimmed ticker')
 });
 
 export const GetOrderBookSchema = z.object({
   symbol: z.string().describe('Trading pair symbol (BTCUSDT for spot, BTCUSDT_UMCBL for futures)'),
-  depth: z.number().optional().describe('Order book depth (default: 20)')
+  depth: z.number().optional().describe('Order book depth (default: 20)'),
+  compact: z.boolean().optional().describe('If true, trims to top-of-book levels')
 });
 
 export const GetCandlesSchema = z.object({
@@ -31,7 +33,8 @@ export const GetCandlesSchema = z.object({
     // UTC variants
     '6Hutc', '12Hutc', '1Dutc', '3Dutc', '1Wutc', '1Mutc'
   ]).describe('Candle interval - API will auto-format to correct case'),
-  limit: z.number().optional().describe('Number of candles (default: 100)')
+  limit: z.number().optional().describe('Number of candles (default: 100)'),
+  compact: z.boolean().optional().describe('If true, returns only essential OHLCV fields')
 });
 
 // Trading Schemas
@@ -104,7 +107,8 @@ export const PlaceTPSLSchema = z.object({
   executePrice: z.string().optional().describe('Execution price for limit TP/SL (omit for market)'),
   holdSide: z.enum(['long', 'short', 'buy', 'sell']).describe('Position side to apply'),
   size: z.string().describe('Quantity/size for TPSL'),
-  clientOid: z.string().optional().describe('Client OID for TPSL order')
+  clientOid: z.string().optional().describe('Client OID for TPSL order'),
+  marginMode: z.enum(['isolated', 'crossed']).optional().describe('Margin mode for futures (default depends on account)')
 });
 
 export const GetPlanOrdersSchema = z.object({
@@ -169,7 +173,8 @@ export const PlacePlanOrderSchema = z.object({
 
 // Status summary of futures position and TPSL/plan orders
 export const GetFuturesStatusSchema = z.object({
-  symbol: z.string().optional().describe('Trading pair symbol (e.g., AVAXUSDT). If omitted, returns all.')
+  symbol: z.string().optional().describe('Trading pair symbol (e.g., AVAXUSDT). If omitted, returns all.'),
+  compact: z.boolean().optional().describe('If true, returns a trimmed summary')
 });
 
 // Type exports for use in server
@@ -198,4 +203,56 @@ export type GetCurrentFundingRateParams = z.infer<typeof GetCurrentFundingRateSc
 export type GetHistoricFundingRatesParams = z.infer<typeof GetHistoricFundingRatesSchema>;
 export type GetFuturesContractsParams = z.infer<typeof GetFuturesContractsSchema>;
 export type PlacePlanOrderParams = z.infer<typeof PlacePlanOrderSchema>;
+
+// Market Snapshot Schema
+export const GetMarketSnapshotSchema = z.object({
+  symbol: z.string().describe('Trading pair symbol (e.g., BTCUSDT or AVAXUSDT)'),
+  interval: z.enum(['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d']).describe('Analysis interval'),
+  limit: z.number().optional().default(150).describe('Number of candles to analyze (default 150)'),
+  includeCMC: z.boolean().optional().default(false).describe('If true and COINMARKET_API_KEY provided, include CMC metadata'),
+  compact: z.boolean().optional().default(true).describe('If true, return trimmed summary'),
+  emas: z.array(z.number()).optional().default([20,50,200]).describe('EMA periods to include'),
+  atrPeriod: z.number().optional().default(14).describe('ATR period to include'),
+  fvgLookback: z.number().optional().default(60).describe('Bars to scan for FVGs')
+});
+
+export type GetMarketSnapshotParams = z.infer<typeof GetMarketSnapshotSchema>;
+
+export const GetMarketSnapshotsSchema = z.object({
+  symbols: z.array(z.string()).describe('Array of trading symbols (e.g., ["BTCUSDT","ETHUSDT"])'),
+  interval: z.enum(['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d']).describe('Analysis interval'),
+  limit: z.number().optional().default(150).describe('Number of candles to analyze'),
+  compact: z.boolean().optional().default(true).describe('If true, return trimmed summary'),
+  emas: z.array(z.number()).optional().default([20,50,200]).describe('EMA periods'),
+  atrPeriod: z.number().optional().default(14).describe('ATR period'),
+  fvgLookback: z.number().optional().default(60).describe('Bars to scan for FVGs')
+});
+
+export type GetMarketSnapshotsParams = z.infer<typeof GetMarketSnapshotsSchema>;
+
+// Aggregated cross-source market summary
+// (Intentionally blank) Aggregated market summary moved to CMC MCP server
+
+// Aggregated entry + TPSL plans
+export const PlaceEntryWithTPSLPlansSchema = z.object({
+  symbol: z.string().describe('Trading pair symbol (e.g., AVAXUSDT)'),
+  side: z.enum(['buy', 'sell']).describe('Entry side'),
+  type: z.enum(['market', 'limit']).describe('Entry order type'),
+  quantity: z.string().describe('Entry quantity'),
+  price: z.string().optional().describe('Entry price for limit orders'),
+  marginCoin: z.string().optional().default('USDT').describe('Futures margin coin (default: USDT)'),
+  marginMode: z.enum(['isolated', 'crossed']).optional().describe('Margin mode to apply for orders'),
+  setMarginMode: z.boolean().optional().default(false).describe('If true, attempt to set account margin mode before placing entry'),
+  stopLoss: z.object({
+    triggerPrice: z.string().describe('Stop loss trigger price'),
+  }).optional(),
+  takeProfits: z.array(z.object({
+    triggerPrice: z.string().describe('Take profit trigger price'),
+    size: z.string().describe('Partial size for the take profit'),
+  })).optional().describe('Array of partial take profits (profit_plan)'),
+  triggerType: z.enum(['fill_price', 'mark_price']).optional().default('mark_price').describe('Trigger type for TPSL and plans'),
+  compact: z.boolean().optional().describe('If true, return trimmed summary only')
+});
+
+export type PlaceEntryWithTPSLPlansParams = z.infer<typeof PlaceEntryWithTPSLPlansSchema>;
 export type GetFuturesStatusParams = z.infer<typeof GetFuturesStatusSchema>;
