@@ -217,7 +217,9 @@ export const GetMarketSnapshotSchema = z.object({
   minQuality: z.number().optional().default(0.6).describe('Minimum quality score for hidden order blocks'),
   requireLTFConfirmations: z.boolean().optional().default(false).describe('Require LTF confirmations for HOBs'),
   excludeInvalidated: z.boolean().optional().default(true).describe('Exclude HOBs marked invalidated'),
-  onlyFullyMitigated: z.boolean().optional().default(false).describe('Include only fully mitigated HOBs')
+  onlyFullyMitigated: z.boolean().optional().default(false).describe('Include only fully mitigated HOBs'),
+  veryStrongMinQuality: z.number().optional().default(0.75).describe('Quality threshold to flag very-strong setups'),
+  onlyVeryStrong: z.boolean().optional().default(false).describe('Filter to return only very-strong setups')
 });
 
 export type GetMarketSnapshotParams = z.infer<typeof GetMarketSnapshotSchema>;
@@ -233,7 +235,9 @@ export const GetMarketSnapshotsSchema = z.object({
   minQuality: z.number().optional().default(0.6).describe('Minimum quality score for hidden order blocks'),
   requireLTFConfirmations: z.boolean().optional().default(false).describe('Require LTF confirmations for HOBs'),
   excludeInvalidated: z.boolean().optional().default(true).describe('Exclude HOBs marked invalidated'),
-  onlyFullyMitigated: z.boolean().optional().default(false).describe('Include only fully mitigated HOBs')
+  onlyFullyMitigated: z.boolean().optional().default(false).describe('Include only fully mitigated HOBs'),
+  veryStrongMinQuality: z.number().optional().default(0.75).describe('Quality threshold to flag very-strong setups'),
+  onlyVeryStrong: z.boolean().optional().default(false).describe('Filter to return only very-strong setups')
 });
 
 export type GetMarketSnapshotsParams = z.infer<typeof GetMarketSnapshotsSchema>;
