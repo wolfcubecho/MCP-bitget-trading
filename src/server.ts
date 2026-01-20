@@ -756,6 +756,34 @@ class BitgetMCPServer {
               }
             }
 
+            // Fallbacks when BOS is null: displacement- and pivot-based
+            if (orderBlocks.length === 0) {
+              const windowN = Math.min(5, closes.length - 1);
+              const displacementUp = closes[closes.length - 1] - closes[closes.length - 1 - windowN];
+              const displacementDown = closes[closes.length - 1 - windowN] - closes[closes.length - 1];
+              const baseRange = atr ?? Math.max(1e-8, highs[highs.length - 1] - lows[lows.length - 1]);
+              const threshold = baseRange * 0.8;
+              if (displacementUp > threshold) {
+                for (let i = candles.length - 2; i >= Math.max(1, candles.length - 1 - lookbackOB); i--) {
+                  if (opens[i] > closes[i]) { orderBlocks.push({ type: 'bull', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; }
+                }
+              } else if (displacementDown > threshold) {
+                for (let i = candles.length - 2; i >= Math.max(1, candles.length - 1 - lookbackOB); i--) {
+                  if (opens[i] < closes[i]) { orderBlocks.push({ type: 'bear', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; }
+                }
+              }
+            }
+            if (orderBlocks.length === 0) {
+              const lastH = [...pivots].reverse().find(p => p.type === 'H');
+              const lastL = [...pivots].reverse().find(p => p.type === 'L');
+              if (lastH) {
+                for (let i = lastH.idx - 1; i >= Math.max(0, lastH.idx - 10); i--) { if (opens[i] > closes[i]) { orderBlocks.push({ type: 'bull', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; } }
+              }
+              if (orderBlocks.length === 0 && lastL) {
+                for (let i = lastL.idx - 1; i >= Math.max(0, lastL.idx - 10); i--) { if (opens[i] < closes[i]) { orderBlocks.push({ type: 'bear', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; } }
+              }
+            }
+
             let cmc: any = null;
             if (includeCMC && process.env.COINMARKET_API_KEY) {
               try {
@@ -810,17 +838,17 @@ class BitgetMCPServer {
             prevDayHigh = Number.isFinite(pdh) ? pdh : null;
             prevDayLow = Number.isFinite(pdl) ? pdl : null;
 
-            // SFP detection using last pivots and tolerance
-            const tolerance = atr ? atr * 0.1 : (closes[closes.length - 1] * 0.001);
+            // SFP detection using last pivots and a tolerance
+            const sfpTolerance = atr ? atr * 0.1 : (closes[closes.length - 1] * 0.001);
             const lastHighPivot = [...pivots].reverse().find(p => p.type === 'H');
             const lastLowPivot = [...pivots].reverse().find(p => p.type === 'L');
             let sfp: { bullish: boolean; bearish: boolean; last?: { type: 'bullish'|'bearish'; idx: number; level: number } } = { bullish: false, bearish: false };
             const checkRange = Math.min(candles.length - 1, 10);
             for (let i = candles.length - checkRange; i < candles.length; i++) {
-              if (lastHighPivot && highs[i] > lastHighPivot.price + tolerance && closes[i] < lastHighPivot.price) {
+              if (lastHighPivot && highs[i] > lastHighPivot.price + sfpTolerance && closes[i] < lastHighPivot.price) {
                 sfp.bearish = true; sfp.last = { type: 'bearish', idx: i, level: lastHighPivot.price }; break;
               }
-              if (lastLowPivot && lows[i] < lastLowPivot.price - tolerance && closes[i] > lastLowPivot.price) {
+              if (lastLowPivot && lows[i] < lastLowPivot.price - sfpTolerance && closes[i] > lastLowPivot.price) {
                 sfp.bullish = true; sfp.last = { type: 'bullish', idx: i, level: lastLowPivot.price }; break;
               }
             }
@@ -984,6 +1012,30 @@ class BitgetMCPServer {
                 }
               }
 
+              // Fallbacks when BOS is null: displacement- and pivot-based
+              if (orderBlocks.length === 0) {
+                const windowN = Math.min(5, closes.length - 1);
+                const displacementUp = closes[closes.length - 1] - closes[closes.length - 1 - windowN];
+                const displacementDown = closes[closes.length - 1 - windowN] - closes[closes.length - 1];
+                const baseRange = atr ?? Math.max(1e-8, highs[highs.length - 1] - lows[lows.length - 1]);
+                const threshold = baseRange * 0.8;
+                if (displacementUp > threshold) {
+                  for (let i = candles.length - 2; i >= Math.max(1, candles.length - 1 - lookbackOB); i--) {
+                    if (opens[i] > closes[i]) { orderBlocks.push({ type: 'bull', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; }
+                  }
+                } else if (displacementDown > threshold) {
+                  for (let i = candles.length - 2; i >= Math.max(1, candles.length - 1 - lookbackOB); i--) {
+                    if (opens[i] < closes[i]) { orderBlocks.push({ type: 'bear', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; }
+                  }
+                }
+              }
+              if (orderBlocks.length === 0) {
+                const lastH = [...pivots].reverse().find(p => p.type === 'H');
+                const lastL = [...pivots].reverse().find(p => p.type === 'L');
+                if (lastH) { for (let i = lastH.idx - 1; i >= Math.max(0, lastH.idx - 10); i--) { if (opens[i] > closes[i]) { orderBlocks.push({ type: 'bull', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; } } }
+                if (orderBlocks.length === 0 && lastL) { for (let i = lastL.idx - 1; i >= Math.max(0, lastL.idx - 10); i--) { if (opens[i] < closes[i]) { orderBlocks.push({ type: 'bear', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; } } }
+              }
+
               // VWAP over window
               let vwap: number | null = null;
               if (candles.length > 0) {
@@ -1026,50 +1078,7 @@ class BitgetMCPServer {
                 if (lastLowPivot && lows[i] < lastLowPivot.price - tolerance && closes[i] > lastLowPivot.price) { sfp.bullish = true; sfp.last = { type: 'bullish', idx: i, level: lastLowPivot.price }; break; }
               }
 
-              const tolerance = atr ? atr * 0.1 : (closes[closes.length - 1] * 0.001);
-              const pivotHighs = pivots.filter(p => p.type === 'H');
-              const pivotLows = pivots.filter(p => p.type === 'L');
-              const clusterLevels = (points: Array<{ idx: number; price: number }>) => {
-                const sorted = points.slice().sort((a, b) => a.price - b.price);
-                const clusters: Array<{ level: number; count: number; indices: number[] }> = [];
-                for (const pt of sorted) {
-                  const last = clusters[clusters.length - 1];
-                  if (last && Math.abs(pt.price - last.level) <= tolerance) {
-                    const newCount = last.count + 1;
-                    const newLevel = (last.level * last.count + pt.price) / newCount;
-                    last.level = newLevel;
-                    last.count = newCount;
-                    last.indices.push(pt.idx);
-                  } else {
-                    clusters.push({ level: pt.price, count: 1, indices: [pt.idx] });
-                  }
-                }
-                return clusters.filter(c => c.count >= 2);
-              };
-              const liquidityZones = {
-                highs: clusterLevels(pivotHighs.map(ph => ({ idx: ph.idx, price: ph.price }))),
-                lows: clusterLevels(pivotLows.map(pl => ({ idx: pl.idx, price: pl.price }))),
-              };
-
-              const orderBlocks: Array<{ type: 'bull'|'bear'; idx: number; open: number; high: number; low: number; close: number }> = [];
-              const lookbackOB = Math.min(candles.length - 1, 60);
-              if (bos === 'up') {
-                for (let i = candles.length - 3; i >= candles.length - lookbackOB; i--) {
-                  if (opens[i] > closes[i]) {
-                    const upMomentum = (closes[i+1] > closes[i]) && (closes[i+2] >= closes[i+1]);
-                    const brokeHigh = lastClose > prevHigh;
-                    if (upMomentum || brokeHigh) { orderBlocks.push({ type: 'bull', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; }
-                  }
-                }
-              } else if (bos === 'down') {
-                for (let i = candles.length - 3; i >= candles.length - lookbackOB; i--) {
-                  if (opens[i] < closes[i]) {
-                    const downMomentum = (closes[i+1] < closes[i]) && (closes[i+2] <= closes[i+1]);
-                    const brokeLow = lastClose < prevLow;
-                    if (downMomentum || brokeLow) { orderBlocks.push({ type: 'bear', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; }
-                  }
-                }
-              }
+              /* Duplicate liquidity/OB block removed: already computed above */
 
               const latest = { close: lastClose, high: highs[highs.length-1], low: lows[lows.length-1], ts: candles[candles.length-1]?.timestamp };
               results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, fvg });
