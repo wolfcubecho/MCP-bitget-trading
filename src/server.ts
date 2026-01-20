@@ -853,6 +853,53 @@ class BitgetMCPServer {
               }
             }
 
+            // Hidden Order Blocks (impulse + last opposing candle with wick sweep and FVG confluence)
+            const hiddenOrderBlocks: Array<{ type: 'bull'|'bear'; idx: number; zone: { open: number; close: number; high: number; low: number }; displacementScore: number; wickSweep: boolean; fvgConfluence: boolean; unmitigated: boolean }> = [];
+            {
+              const windowN = Math.min(5, closes.length - 1);
+              const base = atr ?? Math.max(1e-8, highs[highs.length - 1] - lows[lows.length - 1]);
+              const dispUp = closes[closes.length - 1] - closes[closes.length - 1 - windowN];
+              const dispDown = closes[closes.length - 1 - windowN] - closes[closes.length - 1];
+              const threshold = base * 1.0;
+              const findUnmitigated = (startIdx: number, zoneLow: number, zoneHigh: number): boolean => {
+                for (let i = startIdx + 1; i < candles.length; i++) {
+                  const bodyLow = Math.min(opens[i], closes[i]);
+                  const bodyHigh = Math.max(opens[i], closes[i]);
+                  if (bodyHigh >= zoneLow && bodyLow <= zoneHigh) return false;
+                }
+                return true;
+              };
+              if (dispUp > threshold) {
+                const startIdx = closes.length - 1 - windowN;
+                let obIdx: number | null = null;
+                for (let i = startIdx; i >= Math.max(1, startIdx - 20); i--) {
+                  if (opens[i] > closes[i]) { obIdx = i; break; }
+                }
+                if (obIdx !== null) {
+                  const wickSweep = !!(lastLowPivot && lows[obIdx] < (lastLowPivot.price - sfpTolerance));
+                  const fvgConfluence = fvg.some(g => g.type === 'bull' && g.startIdx >= startIdx - 2 && g.startIdx <= startIdx + 4);
+                  const displacementScore = dispUp / base;
+                  const zone = { open: opens[obIdx], close: closes[obIdx], high: highs[obIdx], low: lows[obIdx] };
+                  const unmitigated = findUnmitigated(obIdx, Math.min(zone.open, zone.close), Math.max(zone.open, zone.close));
+                  hiddenOrderBlocks.push({ type: 'bull', idx: obIdx, zone, displacementScore, wickSweep, fvgConfluence, unmitigated });
+                }
+              } else if (dispDown > threshold) {
+                const startIdx = closes.length - 1 - windowN;
+                let obIdx: number | null = null;
+                for (let i = startIdx; i >= Math.max(1, startIdx - 20); i--) {
+                  if (opens[i] < closes[i]) { obIdx = i; break; }
+                }
+                if (obIdx !== null) {
+                  const wickSweep = !!(lastHighPivot && highs[obIdx] > (lastHighPivot.price + sfpTolerance));
+                  const fvgConfluence = fvg.some(g => g.type === 'bear' && g.startIdx >= startIdx - 2 && g.startIdx <= startIdx + 4);
+                  const displacementScore = dispDown / base;
+                  const zone = { open: opens[obIdx], close: closes[obIdx], high: highs[obIdx], low: lows[obIdx] };
+                  const unmitigated = findUnmitigated(obIdx, Math.min(zone.open, zone.close), Math.max(zone.open, zone.close));
+                  hiddenOrderBlocks.push({ type: 'bear', idx: obIdx, zone, displacementScore, wickSweep, fvgConfluence, unmitigated });
+                }
+              }
+            }
+
             const snapshot = compact ? {
               symbol,
               interval,
@@ -866,6 +913,7 @@ class BitgetMCPServer {
               atr,
               rsi,
               orderBlocks: orderBlocks,
+              hiddenOrderBlocks,
               liquidityZones,
               vwap,
               dailyOpen,
@@ -879,7 +927,7 @@ class BitgetMCPServer {
                 percent_change_24h: cmc.data[symbol.replace('USDT','')].quote?.USD?.percent_change_24h,
                 rank: cmc.data[symbol.replace('USDT','')].cmc_rank,
               } : null } : null,
-            } : { symbol, interval, candles, pivots, fvg, bos, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, cmc };
+            } : { symbol, interval, candles, pivots, fvg, bos, trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, cmc };
 
             return { content: [ { type: 'text', text: JSON.stringify(snapshot, null, 2) } ] } as CallToolResult;
           }
@@ -1080,8 +1128,50 @@ class BitgetMCPServer {
 
               /* Duplicate liquidity/OB block removed: already computed above */
 
+              // Hidden Order Blocks (same logic for multi)
+              const hiddenOrderBlocks: Array<{ type: 'bull'|'bear'; idx: number; zone: { open: number; close: number; high: number; low: number }; displacementScore: number; wickSweep: boolean; fvgConfluence: boolean; unmitigated: boolean }> = [];
+              {
+                const windowN = Math.min(5, closes.length - 1);
+                const base = atr ?? Math.max(1e-8, highs[highs.length - 1] - lows[lows.length - 1]);
+                const dispUp = closes[closes.length - 1] - closes[closes.length - 1 - windowN];
+                const dispDown = closes[closes.length - 1 - windowN] - closes[closes.length - 1];
+                const threshold = base * 1.0;
+                const lastHighPivot = [...pivots].reverse().find(p => p.type === 'H');
+                const lastLowPivot = [...pivots].reverse().find(p => p.type === 'L');
+                const findUnmitigated = (startIdx: number, zoneLow: number, zoneHigh: number): boolean => {
+                  for (let i = startIdx + 1; i < candles.length; i++) {
+                    const bodyLow = Math.min(opens[i], closes[i]);
+                    const bodyHigh = Math.max(opens[i], closes[i]);
+                    if (bodyHigh >= zoneLow && bodyLow <= zoneHigh) return false;
+                  }
+                  return true;
+                };
+                if (dispUp > threshold) {
+                  const startIdx = closes.length - 1 - windowN; let obIdx: number | null = null;
+                  for (let i = startIdx; i >= Math.max(1, startIdx - 20); i--) { if (opens[i] > closes[i]) { obIdx = i; break; } }
+                  if (obIdx !== null) {
+                    const wickSweep = !!(lastLowPivot && lows[obIdx] < (lastLowPivot.price - (atr ? atr * 0.1 : 0)));
+                    const fvgConfluence = fvg.some(g => g.type === 'bull' && g.startIdx >= startIdx - 2 && g.startIdx <= startIdx + 4);
+                    const displacementScore = dispUp / base;
+                    const zone = { open: opens[obIdx], close: closes[obIdx], high: highs[obIdx], low: lows[obIdx] };
+                    const unmitigated = findUnmitigated(obIdx, Math.min(zone.open, zone.close), Math.max(zone.open, zone.close));
+                    hiddenOrderBlocks.push({ type: 'bull', idx: obIdx, zone, displacementScore, wickSweep, fvgConfluence, unmitigated });
+                  }
+                } else if (dispDown > threshold) {
+                  const startIdx = closes.length - 1 - windowN; let obIdx: number | null = null;
+                  for (let i = startIdx; i >= Math.max(1, startIdx - 20); i--) { if (opens[i] < closes[i]) { obIdx = i; break; } }
+                  if (obIdx !== null) {
+                    const wickSweep = !!(lastHighPivot && highs[obIdx] > (lastHighPivot.price + (atr ? atr * 0.1 : 0)));
+                    const fvgConfluence = fvg.some(g => g.type === 'bear' && g.startIdx >= startIdx - 2 && g.startIdx <= startIdx + 4);
+                    const displacementScore = dispDown / base;
+                    const zone = { open: opens[obIdx], close: closes[obIdx], high: highs[obIdx], low: lows[obIdx] };
+                    const unmitigated = findUnmitigated(obIdx, Math.min(zone.open, zone.close), Math.max(zone.open, zone.close));
+                    hiddenOrderBlocks.push({ type: 'bear', idx: obIdx, zone, displacementScore, wickSweep, fvgConfluence, unmitigated });
+                  }
+                }
+              }
               const latest = { close: lastClose, high: highs[highs.length-1], low: lows[lows.length-1], ts: candles[candles.length-1]?.timestamp };
-              results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, fvg });
+              results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, fvg });
             }
             return { content: [ { type: 'text', text: JSON.stringify(results, null, 2) } ] } as CallToolResult;
           }
