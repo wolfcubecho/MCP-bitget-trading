@@ -796,6 +796,7 @@ class BitgetMCPServer {
               const closes = candles.map(c => parseFloat(c.close));
               const highs = candles.map(c => parseFloat(c.high));
               const lows = candles.map(c => parseFloat(c.low));
+              const opens = candles.map(c => parseFloat(c.open));
 
               const lastClose = closes[closes.length - 1];
               const prevHigh = Math.max(...highs.slice(0, highs.length - 1));
@@ -844,14 +845,74 @@ class BitgetMCPServer {
               };
               const atr = rma(tr, atrPeriod);
 
+              const periodRSI = 14;
+              const deltas: number[] = [];
+              for (let i = 1; i < closes.length; i++) deltas.push(closes[i] - closes[i-1]);
+              const gains = deltas.map(d => (d > 0 ? d : 0));
+              const losses = deltas.map(d => (d < 0 ? -d : 0));
+              const avgGain = rma(gains, periodRSI);
+              const avgLoss = rma(losses, periodRSI);
+              let rsi: number | null = null;
+              if (avgGain !== null && avgLoss !== null) {
+                if (avgLoss === 0) rsi = 100; else if (avgGain === 0) rsi = 0; else {
+                  const rs = (avgGain as number) / (avgLoss as number);
+                  rsi = 100 - 100 / (1 + rs);
+                }
+              }
+
               const fvg: Array<{ type: 'bull'|'bear'; from: number; to: number; startIdx: number }> = [];
               for (let i = Math.max(2, candles.length - (fvgLookback + 2)); i < candles.length; i++) {
                 if (lows[i] > highs[i-2]) fvg.push({ type: 'bull', from: highs[i-2], to: lows[i], startIdx: i-2 });
                 if (highs[i] < lows[i-2]) fvg.push({ type: 'bear', from: highs[i], to: lows[i-2], startIdx: i-2 });
               }
 
+              const tolerance = atr ? atr * 0.1 : (closes[closes.length - 1] * 0.001);
+              const pivotHighs = pivots.filter(p => p.type === 'H');
+              const pivotLows = pivots.filter(p => p.type === 'L');
+              const clusterLevels = (points: Array<{ idx: number; price: number }>) => {
+                const sorted = points.slice().sort((a, b) => a.price - b.price);
+                const clusters: Array<{ level: number; count: number; indices: number[] }> = [];
+                for (const pt of sorted) {
+                  const last = clusters[clusters.length - 1];
+                  if (last && Math.abs(pt.price - last.level) <= tolerance) {
+                    const newCount = last.count + 1;
+                    const newLevel = (last.level * last.count + pt.price) / newCount;
+                    last.level = newLevel;
+                    last.count = newCount;
+                    last.indices.push(pt.idx);
+                  } else {
+                    clusters.push({ level: pt.price, count: 1, indices: [pt.idx] });
+                  }
+                }
+                return clusters.filter(c => c.count >= 2);
+              };
+              const liquidityZones = {
+                highs: clusterLevels(pivotHighs.map(ph => ({ idx: ph.idx, price: ph.price }))),
+                lows: clusterLevels(pivotLows.map(pl => ({ idx: pl.idx, price: pl.price }))),
+              };
+
+              const orderBlocks: Array<{ type: 'bull'|'bear'; idx: number; open: number; high: number; low: number; close: number }> = [];
+              const lookbackOB = Math.min(candles.length - 1, 60);
+              if (bos === 'up') {
+                for (let i = candles.length - 3; i >= candles.length - lookbackOB; i--) {
+                  if (opens[i] > closes[i]) {
+                    const upMomentum = (closes[i+1] > closes[i]) && (closes[i+2] >= closes[i+1]);
+                    const brokeHigh = lastClose > prevHigh;
+                    if (upMomentum || brokeHigh) { orderBlocks.push({ type: 'bull', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; }
+                  }
+                }
+              } else if (bos === 'down') {
+                for (let i = candles.length - 3; i >= candles.length - lookbackOB; i--) {
+                  if (opens[i] < closes[i]) {
+                    const downMomentum = (closes[i+1] < closes[i]) && (closes[i+2] <= closes[i+1]);
+                    const brokeLow = lastClose < prevLow;
+                    if (downMomentum || brokeLow) { orderBlocks.push({ type: 'bear', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; }
+                  }
+                }
+              }
+
               const latest = { close: lastClose, high: highs[highs.length-1], low: lows[lows.length-1], ts: candles[candles.length-1]?.timestamp };
-              results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, emaValues, fvg });
+              results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, emaValues, fvg });
             }
             return { content: [ { type: 'text', text: JSON.stringify(results, null, 2) } ] } as CallToolResult;
           }
