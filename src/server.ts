@@ -977,6 +977,18 @@ class BitgetMCPServer {
                 const confCount = (ltf.bos?1:0) + (ltf.choch?1:0) + (ltf.sfp?1:0) + (ltf.fvgMitigation?1:0);
                 const confConfluence = (vwapConf?1:0) + (hvnConf?1:0) + ((liqScore >= 0.5)?1:0) + ((fvgNearVal?1:0));
                 const isVeryStrong = !invalidated && (qualityScore >= veryStrongMinQuality) && (tfWeight >= 1.3) && (confCount >= 2) && (confConfluence >= 2);
+                const veryStrongReasons: string[] = [];
+                if (qualityScore >= veryStrongMinQuality) veryStrongReasons.push('quality>=threshold');
+                if (tfWeight >= 1.3) veryStrongReasons.push('htf_weight_high');
+                if (ltf.bos) veryStrongReasons.push('ltf_bos');
+                if (ltf.choch) veryStrongReasons.push('ltf_choch');
+                if (ltf.sfp) veryStrongReasons.push('ltf_sfp');
+                if (ltf.fvgMitigation) veryStrongReasons.push('ltf_fvg_mitigation');
+                if (vwapConf) veryStrongReasons.push('vwap_confluence');
+                if (hvnConf) veryStrongReasons.push('hvn_confluence');
+                if (liqScore >= 0.5) veryStrongReasons.push('near_liquidity');
+                if (fvgNearVal) veryStrongReasons.push('fvg_near');
+                if (fullyMitigated) veryStrongReasons.push('fully_mitigated');
                 hob.invalidated = invalidated;
                 hob.fullyMitigated = fullyMitigated && !invalidated;
                 hob.ltfConfirmations = ltf;
@@ -984,6 +996,7 @@ class BitgetMCPServer {
                 hob.components = { dispScore, wickRatio, fvgNear: !!fvgNearVal, liqScore, vwap: !!vwapConf, hvn: !!hvnConf, tfWeight };
                 hob.isVeryStrong = isVeryStrong;
                 hob.strengthLabel = isVeryStrong ? 'very-strong' : (hob.qualityScore >= minQuality ? 'strong' : 'normal');
+                if (isVeryStrong) hob.veryStrongReasons = veryStrongReasons;
               }
             }
 
@@ -1347,6 +1360,18 @@ class BitgetMCPServer {
                     const confCount = (ltf.bos?1:0) + (ltf.choch?1:0) + (ltf.sfp?1:0) + (ltf.fvgMitigation?1:0);
                     const confConfluence = (vwapConf?1:0) + (hvnConf?1:0) + ((liqScore >= 0.5)?1:0) + ((fvgNearVal?1:0));
                     const isVeryStrong = !invalidated && (qualityScore >= veryStrongMinQuality) && (tfWeight >= 1.3) && (confCount >= 2) && (confConfluence >= 2);
+                    const veryStrongReasons: string[] = [];
+                    if (qualityScore >= veryStrongMinQuality) veryStrongReasons.push('quality>=threshold');
+                    if (tfWeight >= 1.3) veryStrongReasons.push('htf_weight_high');
+                    if (ltf.bos) veryStrongReasons.push('ltf_bos');
+                    if (ltf.choch) veryStrongReasons.push('ltf_choch');
+                    if (ltf.sfp) veryStrongReasons.push('ltf_sfp');
+                    if (ltf.fvgMitigation) veryStrongReasons.push('ltf_fvg_mitigation');
+                    if (vwapConf) veryStrongReasons.push('vwap_confluence');
+                    if (hvnConf) veryStrongReasons.push('hvn_confluence');
+                    if (liqScore >= 0.5) veryStrongReasons.push('near_liquidity');
+                    if (fvgNearVal) veryStrongReasons.push('fvg_near');
+                    if (fullyMitigated) veryStrongReasons.push('fully_mitigated');
                     hob.invalidated = invalidated;
                     hob.fullyMitigated = fullyMitigated && !invalidated;
                     hob.ltfConfirmations = ltf;
@@ -1354,6 +1379,7 @@ class BitgetMCPServer {
                     hob.components = { dispScore, wickRatio, fvgNear: !!fvgNearVal, liqScore, vwap: !!vwapConf, hvn: !!hvnConf, tfWeight };
                     hob.isVeryStrong = isVeryStrong;
                     hob.strengthLabel = isVeryStrong ? 'very-strong' : (hob.qualityScore >= minQuality ? 'strong' : 'normal');
+                    if (isVeryStrong) hob.veryStrongReasons = veryStrongReasons;
                   }
                 }
               const filterHob = (hob: any) => {
