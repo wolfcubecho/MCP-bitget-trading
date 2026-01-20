@@ -853,49 +853,30 @@ class BitgetMCPServer {
               }
             }
 
-            // Hidden Order Blocks (impulse + last opposing candle with wick sweep and FVG confluence)
-            const hiddenOrderBlocks: Array<{ type: 'bull'|'bear'; idx: number; zone: { open: number; close: number; high: number; low: number }; displacementScore: number; wickSweep: boolean; fvgConfluence: boolean; unmitigated: boolean }> = [];
-            {
-              const windowN = Math.min(5, closes.length - 1);
-              const base = atr ?? Math.max(1e-8, highs[highs.length - 1] - lows[lows.length - 1]);
-              const dispUp = closes[closes.length - 1] - closes[closes.length - 1 - windowN];
-              const dispDown = closes[closes.length - 1 - windowN] - closes[closes.length - 1];
-              const threshold = base * 1.0;
-              const findUnmitigated = (startIdx: number, zoneLow: number, zoneHigh: number): boolean => {
-                for (let i = startIdx + 1; i < candles.length; i++) {
-                  const bodyLow = Math.min(opens[i], closes[i]);
-                  const bodyHigh = Math.max(opens[i], closes[i]);
-                  if (bodyHigh >= zoneLow && bodyLow <= zoneHigh) return false;
-                }
-                return true;
-              };
-              if (dispUp > threshold) {
-                const startIdx = closes.length - 1 - windowN;
-                let obIdx: number | null = null;
-                for (let i = startIdx; i >= Math.max(1, startIdx - 20); i--) {
-                  if (opens[i] > closes[i]) { obIdx = i; break; }
-                }
-                if (obIdx !== null) {
-                  const wickSweep = !!(lastLowPivot && lows[obIdx] < (lastLowPivot.price - sfpTolerance));
-                  const fvgConfluence = fvg.some(g => g.type === 'bull' && g.startIdx >= startIdx - 2 && g.startIdx <= startIdx + 4);
-                  const displacementScore = dispUp / base;
-                  const zone = { open: opens[obIdx], close: closes[obIdx], high: highs[obIdx], low: lows[obIdx] };
-                  const unmitigated = findUnmitigated(obIdx, Math.min(zone.open, zone.close), Math.max(zone.open, zone.close));
-                  hiddenOrderBlocks.push({ type: 'bull', idx: obIdx, zone, displacementScore, wickSweep, fvgConfluence, unmitigated });
-                }
-              } else if (dispDown > threshold) {
-                const startIdx = closes.length - 1 - windowN;
-                let obIdx: number | null = null;
-                for (let i = startIdx; i >= Math.max(1, startIdx - 20); i--) {
-                  if (opens[i] < closes[i]) { obIdx = i; break; }
-                }
-                if (obIdx !== null) {
-                  const wickSweep = !!(lastHighPivot && highs[obIdx] > (lastHighPivot.price + sfpTolerance));
-                  const fvgConfluence = fvg.some(g => g.type === 'bear' && g.startIdx >= startIdx - 2 && g.startIdx <= startIdx + 4);
-                  const displacementScore = dispDown / base;
-                  const zone = { open: opens[obIdx], close: closes[obIdx], high: highs[obIdx], low: lows[obIdx] };
-                  const unmitigated = findUnmitigated(obIdx, Math.min(zone.open, zone.close), Math.max(zone.open, zone.close));
-                  hiddenOrderBlocks.push({ type: 'bear', idx: obIdx, zone, displacementScore, wickSweep, fvgConfluence, unmitigated });
+            // Hidden Order Blocks (mitigation tracker: wick/partial close without invalidation of OB core)
+            const hiddenOrderBlocks: Array<{ type: 'bull'|'bear'; idx: number; zone: { open: number; close: number; high: number; low: number }; revisitIdx: number; wickThrough: boolean; partialClose: boolean; coreUntouched: boolean }> = [];
+            for (const ob of orderBlocks) {
+              const bodyLow = Math.min(ob.open, ob.close);
+              const bodyHigh = Math.max(ob.open, ob.close);
+              let revisitIdx = -1;
+              for (let i = ob.idx + 1; i < candles.length; i++) {
+                if (highs[i] >= bodyLow && lows[i] <= bodyHigh) { revisitIdx = i; break; }
+              }
+              if (revisitIdx !== -1) {
+                if (ob.type === 'bull') {
+                  const invalidated = closes[revisitIdx] < bodyLow;
+                  const wickThrough = lows[revisitIdx] < bodyLow && closes[revisitIdx] >= bodyLow;
+                  const partialClose = closes[revisitIdx] >= bodyLow && closes[revisitIdx] <= bodyHigh;
+                  if (!invalidated && (wickThrough || partialClose)) {
+                    hiddenOrderBlocks.push({ type: 'bull', idx: ob.idx, zone: { open: ob.open, close: ob.close, high: ob.high, low: ob.low }, revisitIdx, wickThrough, partialClose, coreUntouched: true });
+                  }
+                } else {
+                  const invalidated = closes[revisitIdx] > bodyHigh;
+                  const wickThrough = highs[revisitIdx] > bodyHigh && closes[revisitIdx] <= bodyHigh;
+                  const partialClose = closes[revisitIdx] >= bodyLow && closes[revisitIdx] <= bodyHigh;
+                  if (!invalidated && (wickThrough || partialClose)) {
+                    hiddenOrderBlocks.push({ type: 'bear', idx: ob.idx, zone: { open: ob.open, close: ob.close, high: ob.high, low: ob.low }, revisitIdx, wickThrough, partialClose, coreUntouched: true });
+                  }
                 }
               }
             }
