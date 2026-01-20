@@ -115,6 +115,28 @@ npm run build
 npm start
 ```
 
+## 🎯 Hidden Order Blocks (Quality Filters)
+
+Market snapshots include `hiddenOrderBlocks` enriched with mitigation flags, LTF confirmations, and a `qualityScore`. Server-side filtering parameters:
+
+- Parameters:
+  - minQuality: Minimum quality score (default 0.6)
+  - requireLTFConfirmations: Require BOS/ChoCh/SFP/FVG mitigation on LTF (default false)
+  - excludeInvalidated: Exclude HOBs marked `invalidated` (default true)
+  - onlyFullyMitigated: Include only HOBs with `fullyMitigated=true` (default false)
+
+- Example (Claude CLI):
+```powershell
+claude call bitget-trading getMarketSnapshot --args '{
+  "symbol":"BTCUSDT","interval":"1h",
+  "minQuality":0.7,
+  "requireLTFConfirmations":true,
+  "excludeInvalidated":true
+}'
+```
+
+Note: If parameters are not recognized, restart Claude Desktop or toggle MCP servers to refresh schemas.
+
 ## 🔧 Configuration
 
 ### Environment Variables
