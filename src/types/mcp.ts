@@ -207,7 +207,7 @@ export type PlacePlanOrderParams = z.infer<typeof PlacePlanOrderSchema>;
 // Market Snapshot Schema
 export const GetMarketSnapshotSchema = z.object({
   symbol: z.string().describe('Trading pair symbol (e.g., BTCUSDT or AVAXUSDT)'),
-  interval: z.enum(['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d']).describe('Analysis interval'),
+  interval: z.enum(['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d','2d','4d','1w','2w']).describe('Analysis interval'),
   limit: z.number().optional().default(150).describe('Number of candles to analyze (default 150)'),
   includeCMC: z.boolean().optional().default(false).describe('If true and COINMARKET_API_KEY provided, include CMC metadata'),
   compact: z.boolean().optional().default(true).describe('If true, return trimmed summary'),
@@ -224,7 +224,7 @@ export type GetMarketSnapshotParams = z.infer<typeof GetMarketSnapshotSchema>;
 
 export const GetMarketSnapshotsSchema = z.object({
   symbols: z.array(z.string()).describe('Array of trading symbols (e.g., ["BTCUSDT","ETHUSDT"])'),
-  interval: z.enum(['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d']).describe('Analysis interval'),
+  interval: z.enum(['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d','2d','4d','1w','2w']).describe('Analysis interval'),
   limit: z.number().optional().default(150).describe('Number of candles to analyze'),
   compact: z.boolean().optional().default(true).describe('If true, return trimmed summary'),
   emas: z.array(z.number()).optional().default([20,50,200]).describe('EMA periods'),

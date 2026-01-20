@@ -169,7 +169,7 @@ class BitgetMCPServer {
                         type: 'object',
                         properties: {
                           symbol: { type: 'string', description: 'Trading pair symbol (e.g., BTCUSDT)' },
-                          interval: { type: 'string', enum: ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d'], description: 'Interval to analyze' },
+                          interval: { type: 'string', enum: ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d','2d','4d','1w','2w'], description: 'Interval to analyze' },
                           limit: { type: 'number', description: 'Candles to analyze (default 150)' },
                           includeCMC: { type: 'boolean', description: 'Include CMC metadata if API key provided' },
                           compact: { type: 'boolean', description: 'Return trimmed summary (default true)' },
@@ -187,7 +187,7 @@ class BitgetMCPServer {
                         type: 'object',
                         properties: {
                           symbols: { type: 'array', items: { type: 'string' }, description: 'Symbols to analyze' },
-                          interval: { type: 'string', enum: ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d'], description: 'Interval to analyze' },
+                          interval: { type: 'string', enum: ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d','2d','4d','1w','2w'], description: 'Interval to analyze' },
                           limit: { type: 'number', description: 'Candles to analyze (default 150)' },
                           compact: { type: 'boolean', description: 'Trim results' },
                           emas: { type: 'array', items: { type: 'number' }, description: 'EMA periods' },
@@ -616,7 +616,16 @@ class BitgetMCPServer {
           }
           case 'getMarketSnapshot': {
             const { symbol, interval, limit = 150, includeCMC = false, compact = true, emas = [20,50,200], atrPeriod = 14, fvgLookback = 60, minQuality = 0.6, requireLTFConfirmations = false, excludeInvalidated = true, onlyFullyMitigated = false } = (await import('./types/mcp.js')).GetMarketSnapshotSchema.parse(args);
+            const normalizeInterval = (iv: string) => (iv === '2d' ? '1d' : iv === '4d' ? '1d' : iv === '2w' ? '1w' : iv);
             const candles = await this.bitgetClient.getCandles(symbol, interval, limit);
+            // If unsupported interval was requested, refetch with normalized one
+            if (!candles.length && (interval === '2d' || interval === '4d' || interval === '2w')) {
+              const norm = normalizeInterval(interval);
+              const refetched = await this.bitgetClient.getCandles(symbol, norm, limit);
+              if (refetched.length) {
+                (candles as any) = refetched;
+              }
+            }
             const closes = candles.map(c => parseFloat(c.close));
             const highs = candles.map(c => parseFloat(c.high));
             const lows = candles.map(c => parseFloat(c.low));
@@ -883,9 +892,9 @@ class BitgetMCPServer {
 
             // Enrich HOBs: fully mitigated, LTF confirmations, quality score
             {
-              const intervalMsMap: Record<string, number> = { '1m': 60_000, '3m': 180_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '6h': 21_600_000, '12h': 43_200_000, '1d': 86_400_000 };
-              const ltfMap: Record<string, string> = { '1d': '1h', '12h': '1h', '6h': '30m', '4h': '30m', '1h': '15m', '30m': '5m', '15m': '5m', '5m': '1m' };
-              const tfWeightMap: Record<string, number> = { '1m': 0.5, '5m': 0.7, '15m': 0.8, '30m': 0.9, '1h': 1.0, '4h': 1.1, '1d': 1.2 };
+              const intervalMsMap: Record<string, number> = { '1m': 60_000, '3m': 180_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '6h': 21_600_000, '12h': 43_200_000, '1d': 86_400_000, '2d': 172_800_000, '4d': 345_600_000, '1w': 604_800_000, '2w': 1_209_600_000 };
+              const ltfMap: Record<string, string> = { '2w': '1d', '1w': '4h', '4d': '1h', '2d': '30m', '1d': '1h', '12h': '1h', '6h': '30m', '4h': '30m', '1h': '15m', '30m': '5m', '15m': '5m', '5m': '1m' };
+              const tfWeightMap: Record<string, number> = { '1m': 0.5, '5m': 0.7, '15m': 0.8, '30m': 0.9, '1h': 1.0, '4h': 1.1, '1d': 1.2, '2d': 1.25, '4d': 1.3, '1w': 1.35, '2w': 1.4 };
               const intervalMs = intervalMsMap[interval] ?? 3_600_000;
               const ltfInterval = ltfMap[interval] ?? null;
               const volSorted = [...volumes].sort((a,b)=>a-b);
@@ -1017,9 +1026,13 @@ class BitgetMCPServer {
 
           case 'getMarketSnapshots': {
             const { symbols, interval, limit = 150, compact = true, emas = [20,50,200], atrPeriod = 14, fvgLookback = 60, minQuality = 0.6, requireLTFConfirmations = false, excludeInvalidated = true, onlyFullyMitigated = false } = (await import('./types/mcp.js')).GetMarketSnapshotsSchema.parse(args);
+            const normalizeInterval = (iv: string) => (iv === '2d' ? '1d' : iv === '4d' ? '1d' : iv === '2w' ? '1w' : iv);
             const results: any[] = [];
             for (const symbol of symbols) {
-              const candles = await this.bitgetClient.getCandles(symbol, interval, limit);
+              let candles = await this.bitgetClient.getCandles(symbol, interval, limit);
+              if (!candles.length && (interval === '2d' || interval === '4d' || interval === '2w')) {
+                candles = await this.bitgetClient.getCandles(symbol, normalizeInterval(interval), limit);
+              }
               if (!candles.length) { results.push({ symbol, error: 'no_candles' }); continue; }
               const closes = candles.map(c => parseFloat(c.close));
               const highs = candles.map(c => parseFloat(c.high));
@@ -1255,9 +1268,9 @@ class BitgetMCPServer {
               }
                 // Enrich multi HOBs similarly
                 {
-                  const intervalMsMap: Record<string, number> = { '1m': 60_000, '3m': 180_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '6h': 21_600_000, '12h': 43_200_000, '1d': 86_400_000 };
-                  const ltfMap: Record<string, string> = { '1d': '1h', '12h': '1h', '6h': '30m', '4h': '30m', '1h': '15m', '30m': '5m', '15m': '5m', '5m': '1m' };
-                  const tfWeightMap: Record<string, number> = { '1m': 0.5, '5m': 0.7, '15m': 0.8, '30m': 0.9, '1h': 1.0, '4h': 1.1, '1d': 1.2 };
+                  const intervalMsMap: Record<string, number> = { '1m': 60_000, '3m': 180_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '6h': 21_600_000, '12h': 43_200_000, '1d': 86_400_000, '2d': 172_800_000, '4d': 345_600_000, '1w': 604_800_000, '2w': 1_209_600_000 };
+                  const ltfMap: Record<string, string> = { '2w': '1d', '1w': '4h', '4d': '1h', '2d': '30m', '1d': '1h', '12h': '1h', '6h': '30m', '4h': '30m', '1h': '15m', '30m': '5m', '15m': '5m', '5m': '1m' };
+                  const tfWeightMap: Record<string, number> = { '1m': 0.5, '5m': 0.7, '15m': 0.8, '30m': 0.9, '1h': 1.0, '4h': 1.1, '1d': 1.2, '2d': 1.25, '4d': 1.3, '1w': 1.35, '2w': 1.4 };
                   const intervalMs = intervalMsMap[interval] ?? 3_600_000;
                   const ltfInterval = ltfMap[interval] ?? null;
                   const volSorted = [...volumes].sort((a,b)=>a-b);
