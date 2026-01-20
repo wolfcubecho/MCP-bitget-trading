@@ -621,6 +621,8 @@ class BitgetMCPServer {
             const highs = candles.map(c => parseFloat(c.high));
             const lows = candles.map(c => parseFloat(c.low));
             const opens = candles.map(c => parseFloat(c.open));
+            const volumes = candles.map(c => parseFloat(c.volume));
+            const timestamps = candles.map(c => c.timestamp);
 
             const pivots = [] as Array<{ idx: number; type: 'H'|'L'; price: number }>;
             for (let i = 1; i < candles.length - 1; i++) {
@@ -762,6 +764,67 @@ class BitgetMCPServer {
               } catch {}
             }
 
+            // VWAP over provided window using typical price
+            let vwap: number | null = null;
+            if (candles.length > 0) {
+              let tpVolSum = 0;
+              let volSum = 0;
+              for (let i = 0; i < candles.length; i++) {
+                const tp = (highs[i] + lows[i] + closes[i]) / 3;
+                const v = volumes[i] || 0;
+                tpVolSum += tp * v;
+                volSum += v;
+              }
+              vwap = volSum > 0 ? tpVolSum / volSum : null;
+            }
+
+            // Daily/Weekly opens and Previous Day High/Low (UTC-based)
+            const startOfUTC = (ts: number) => Date.UTC(new Date(ts).getUTCFullYear(), new Date(ts).getUTCMonth(), new Date(ts).getUTCDate());
+            const now = timestamps[timestamps.length - 1];
+            const todayStart = startOfUTC(now);
+            const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+            const utcDay = new Date(now).getUTCDay(); // 0=Sun
+            const daysSinceMonday = (utcDay + 6) % 7; // Mon=0
+            const weekStart = todayStart - daysSinceMonday * 24 * 60 * 60 * 1000;
+
+            let dailyOpen: number | null = null;
+            let weeklyOpen: number | null = null;
+            let prevDayHigh: number | null = null;
+            let prevDayLow: number | null = null;
+
+            for (let i = 0; i < timestamps.length; i++) {
+              const d0 = startOfUTC(timestamps[i]);
+              if (dailyOpen === null && d0 >= todayStart) dailyOpen = opens[i];
+              if (weeklyOpen === null && d0 >= weekStart) weeklyOpen = opens[i];
+            }
+            // Previous day metrics
+            let pdh = -Infinity;
+            let pdl = Infinity;
+            for (let i = 0; i < timestamps.length; i++) {
+              const d0 = startOfUTC(timestamps[i]);
+              if (d0 >= yesterdayStart && d0 < todayStart) {
+                if (highs[i] > pdh) pdh = highs[i];
+                if (lows[i] < pdl) pdl = lows[i];
+              }
+            }
+            prevDayHigh = Number.isFinite(pdh) ? pdh : null;
+            prevDayLow = Number.isFinite(pdl) ? pdl : null;
+
+            // SFP detection using last pivots and tolerance
+            const tolerance = atr ? atr * 0.1 : (closes[closes.length - 1] * 0.001);
+            const lastHighPivot = [...pivots].reverse().find(p => p.type === 'H');
+            const lastLowPivot = [...pivots].reverse().find(p => p.type === 'L');
+            let sfp: { bullish: boolean; bearish: boolean; last?: { type: 'bullish'|'bearish'; idx: number; level: number } } = { bullish: false, bearish: false };
+            const checkRange = Math.min(candles.length - 1, 10);
+            for (let i = candles.length - checkRange; i < candles.length; i++) {
+              if (lastHighPivot && highs[i] > lastHighPivot.price + tolerance && closes[i] < lastHighPivot.price) {
+                sfp.bearish = true; sfp.last = { type: 'bearish', idx: i, level: lastHighPivot.price }; break;
+              }
+              if (lastLowPivot && lows[i] < lastLowPivot.price - tolerance && closes[i] > lastLowPivot.price) {
+                sfp.bullish = true; sfp.last = { type: 'bullish', idx: i, level: lastLowPivot.price }; break;
+              }
+            }
+
             const snapshot = compact ? {
               symbol,
               interval,
@@ -776,13 +839,19 @@ class BitgetMCPServer {
               rsi,
               orderBlocks: orderBlocks,
               liquidityZones,
+              vwap,
+              dailyOpen,
+              weeklyOpen,
+              prevDayHigh,
+              prevDayLow,
+              sfp,
               ...emaValues,
               cmc: cmc ? { status: cmc.status, data: (cmc.data && cmc.data[symbol.replace('USDT','')]) ? {
                 market_cap: cmc.data[symbol.replace('USDT','')].quote?.USD?.market_cap,
                 percent_change_24h: cmc.data[symbol.replace('USDT','')].quote?.USD?.percent_change_24h,
                 rank: cmc.data[symbol.replace('USDT','')].cmc_rank,
               } : null } : null,
-            } : { symbol, interval, candles, pivots, fvg, bos, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, emaValues, cmc };
+            } : { symbol, interval, candles, pivots, fvg, bos, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, cmc };
 
             return { content: [ { type: 'text', text: JSON.stringify(snapshot, null, 2) } ] } as CallToolResult;
           }
@@ -797,6 +866,8 @@ class BitgetMCPServer {
               const highs = candles.map(c => parseFloat(c.high));
               const lows = candles.map(c => parseFloat(c.low));
               const opens = candles.map(c => parseFloat(c.open));
+              const volumes = candles.map(c => parseFloat(c.volume));
+              const timestamps = candles.map(c => c.timestamp);
 
               const lastClose = closes[closes.length - 1];
               const prevHigh = Math.max(...highs.slice(0, highs.length - 1));
@@ -866,6 +937,95 @@ class BitgetMCPServer {
                 if (highs[i] < lows[i-2]) fvg.push({ type: 'bear', from: highs[i], to: lows[i-2], startIdx: i-2 });
               }
 
+              // Liquidity zones via clustering
+              const tolerance = atr ? atr * 0.1 : (closes[closes.length - 1] * 0.001);
+              const pivotHighs = pivots.filter(p => p.type === 'H');
+              const pivotLows = pivots.filter(p => p.type === 'L');
+              const clusterLevels = (points: Array<{ idx: number; price: number }>) => {
+                const sorted = points.slice().sort((a, b) => a.price - b.price);
+                const clusters: Array<{ level: number; count: number; indices: number[] }> = [];
+                for (const pt of sorted) {
+                  const last = clusters[clusters.length - 1];
+                  if (last && Math.abs(pt.price - last.level) <= tolerance) {
+                    const newCount = last.count + 1;
+                    const newLevel = (last.level * last.count + pt.price) / newCount;
+                    last.level = newLevel;
+                    last.count = newCount;
+                    last.indices.push(pt.idx);
+                  } else {
+                    clusters.push({ level: pt.price, count: 1, indices: [pt.idx] });
+                  }
+                }
+                return clusters.filter(c => c.count >= 2);
+              };
+              const liquidityZones = {
+                highs: clusterLevels(pivotHighs.map(ph => ({ idx: ph.idx, price: ph.price }))),
+                lows: clusterLevels(pivotLows.map(pl => ({ idx: pl.idx, price: pl.price }))),
+              };
+
+              // Order blocks via BOS context
+              const orderBlocks: Array<{ type: 'bull'|'bear'; idx: number; open: number; high: number; low: number; close: number }> = [];
+              const lookbackOB = Math.min(candles.length - 1, 60);
+              if (bos === 'up') {
+                for (let i = candles.length - 3; i >= candles.length - lookbackOB; i--) {
+                  if (opens[i] > closes[i]) {
+                    const upMomentum = (closes[i+1] > closes[i]) && (closes[i+2] >= closes[i+1]);
+                    const brokeHigh = lastClose > prevHigh;
+                    if (upMomentum || brokeHigh) { orderBlocks.push({ type: 'bull', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; }
+                  }
+                }
+              } else if (bos === 'down') {
+                for (let i = candles.length - 3; i >= candles.length - lookbackOB; i--) {
+                  if (opens[i] < closes[i]) {
+                    const downMomentum = (closes[i+1] < closes[i]) && (closes[i+2] <= closes[i+1]);
+                    const brokeLow = lastClose < prevLow;
+                    if (downMomentum || brokeLow) { orderBlocks.push({ type: 'bear', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }); break; }
+                  }
+                }
+              }
+
+              // VWAP over window
+              let vwap: number | null = null;
+              if (candles.length > 0) {
+                let tpVolSum = 0; let volSum = 0;
+                for (let i = 0; i < candles.length; i++) {
+                  const tp = (highs[i] + lows[i] + closes[i]) / 3;
+                  const v = volumes[i] || 0; tpVolSum += tp * v; volSum += v;
+                }
+                vwap = volSum > 0 ? tpVolSum / volSum : null;
+              }
+
+              // Daily/Weekly opens and prev day hi/lo
+              const startOfUTC = (ts: number) => Date.UTC(new Date(ts).getUTCFullYear(), new Date(ts).getUTCMonth(), new Date(ts).getUTCDate());
+              const now = timestamps[timestamps.length - 1];
+              const todayStart = startOfUTC(now);
+              const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+              const utcDay = new Date(now).getUTCDay();
+              const daysSinceMonday = (utcDay + 6) % 7;
+              const weekStart = todayStart - daysSinceMonday * 24 * 60 * 60 * 1000;
+              let dailyOpen: number | null = null; let weeklyOpen: number | null = null; let prevDayHigh: number | null = null; let prevDayLow: number | null = null;
+              for (let i = 0; i < timestamps.length; i++) {
+                const d0 = startOfUTC(timestamps[i]);
+                if (dailyOpen === null && d0 >= todayStart) dailyOpen = opens[i];
+                if (weeklyOpen === null && d0 >= weekStart) weeklyOpen = opens[i];
+              }
+              let pdh = -Infinity; let pdl = Infinity;
+              for (let i = 0; i < timestamps.length; i++) {
+                const d0 = startOfUTC(timestamps[i]);
+                if (d0 >= yesterdayStart && d0 < todayStart) { if (highs[i] > pdh) pdh = highs[i]; if (lows[i] < pdl) pdl = lows[i]; }
+              }
+              prevDayHigh = Number.isFinite(pdh) ? pdh : null; prevDayLow = Number.isFinite(pdl) ? pdl : null;
+
+              // SFP detection
+              const lastHighPivot = [...pivots].reverse().find(p => p.type === 'H');
+              const lastLowPivot = [...pivots].reverse().find(p => p.type === 'L');
+              let sfp: { bullish: boolean; bearish: boolean; last?: { type: 'bullish'|'bearish'; idx: number; level: number } } = { bullish: false, bearish: false };
+              const checkRange = Math.min(candles.length - 1, 10);
+              for (let i = candles.length - checkRange; i < candles.length; i++) {
+                if (lastHighPivot && highs[i] > lastHighPivot.price + tolerance && closes[i] < lastHighPivot.price) { sfp.bearish = true; sfp.last = { type: 'bearish', idx: i, level: lastHighPivot.price }; break; }
+                if (lastLowPivot && lows[i] < lastLowPivot.price - tolerance && closes[i] > lastLowPivot.price) { sfp.bullish = true; sfp.last = { type: 'bullish', idx: i, level: lastLowPivot.price }; break; }
+              }
+
               const tolerance = atr ? atr * 0.1 : (closes[closes.length - 1] * 0.001);
               const pivotHighs = pivots.filter(p => p.type === 'H');
               const pivotLows = pivots.filter(p => p.type === 'L');
@@ -912,7 +1072,7 @@ class BitgetMCPServer {
               }
 
               const latest = { close: lastClose, high: highs[highs.length-1], low: lows[lows.length-1], ts: candles[candles.length-1]?.timestamp };
-              results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, emaValues, fvg });
+              results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, fvg });
             }
             return { content: [ { type: 'text', text: JSON.stringify(results, null, 2) } ] } as CallToolResult;
           }
