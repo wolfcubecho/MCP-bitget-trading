@@ -620,6 +620,7 @@ class BitgetMCPServer {
             const closes = candles.map(c => parseFloat(c.close));
             const highs = candles.map(c => parseFloat(c.high));
             const lows = candles.map(c => parseFloat(c.low));
+            const opens = candles.map(c => parseFloat(c.open));
 
             const pivots = [] as Array<{ idx: number; type: 'H'|'L'; price: number }>;
             for (let i = 1; i < candles.length - 1; i++) {
@@ -682,6 +683,77 @@ class BitgetMCPServer {
             };
             const atr = rma(tr, atrPeriod);
 
+            // RSI(14) using Wilder's smoothing
+            const periodRSI = 14;
+            const deltas: number[] = [];
+            for (let i = 1; i < closes.length; i++) deltas.push(closes[i] - closes[i-1]);
+            const gains = deltas.map(d => (d > 0 ? d : 0));
+            const losses = deltas.map(d => (d < 0 ? -d : 0));
+            const avgGain = rma(gains, periodRSI);
+            const avgLoss = rma(losses, periodRSI);
+            let rsi: number | null = null;
+            if (avgGain !== null && avgLoss !== null) {
+              if (avgLoss === 0) rsi = 100; else if (avgGain === 0) rsi = 0; else {
+                const rs = (avgGain as number) / (avgLoss as number);
+                rsi = 100 - 100 / (1 + rs);
+              }
+            }
+
+            // Liquidity zones: cluster equal highs/lows using ATR-based tolerance
+            const tolerance = atr ? atr * 0.1 : (closes[closes.length - 1] * 0.001);
+            const pivotHighs = pivots.filter(p => p.type === 'H');
+            const pivotLows = pivots.filter(p => p.type === 'L');
+            const clusterLevels = (points: Array<{ idx: number; price: number }>) => {
+              const sorted = points.slice().sort((a, b) => a.price - b.price);
+              const clusters: Array<{ level: number; count: number; indices: number[] }> = [];
+              for (const pt of sorted) {
+                const last = clusters[clusters.length - 1];
+                if (last && Math.abs(pt.price - last.level) <= tolerance) {
+                  // update cluster level as average
+                  const newCount = last.count + 1;
+                  const newLevel = (last.level * last.count + pt.price) / newCount;
+                  last.level = newLevel;
+                  last.count = newCount;
+                  last.indices.push(pt.idx);
+                } else {
+                  clusters.push({ level: pt.price, count: 1, indices: [pt.idx] });
+                }
+              }
+              return clusters.filter(c => c.count >= 2);
+            };
+            const liquidityZones = {
+              highs: clusterLevels(pivotHighs.map(ph => ({ idx: ph.idx, price: ph.price }))),
+              lows: clusterLevels(pivotLows.map(pl => ({ idx: pl.idx, price: pl.price }))),
+            };
+
+            // Order Block detection: last opposite candle before impulsive BOS
+            const orderBlocks: Array<{ type: 'bull'|'bear'; idx: number; open: number; high: number; low: number; close: number }> = [];
+            const lookbackOB = Math.min(candles.length - 1, 60);
+            if (bos === 'up') {
+              for (let i = candles.length - 3; i >= candles.length - lookbackOB; i--) {
+                if (opens[i] > closes[i]) { // bearish candle before up move
+                  // confirm displacement: next 2 bars up or large range
+                  const upMomentum = (closes[i+1] > closes[i]) && (closes[i+2] >= closes[i+1]);
+                  const brokeHigh = lastClose > prevHigh;
+                  if (upMomentum || brokeHigh) {
+                    orderBlocks.push({ type: 'bull', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] });
+                    break;
+                  }
+                }
+              }
+            } else if (bos === 'down') {
+              for (let i = candles.length - 3; i >= candles.length - lookbackOB; i--) {
+                if (opens[i] < closes[i]) { // bullish candle before down move
+                  const downMomentum = (closes[i+1] < closes[i]) && (closes[i+2] <= closes[i+1]);
+                  const brokeLow = lastClose < prevLow;
+                  if (downMomentum || brokeLow) {
+                    orderBlocks.push({ type: 'bear', idx: i, open: opens[i], high: highs[i], low: lows[i], close: closes[i] });
+                    break;
+                  }
+                }
+              }
+            }
+
             let cmc: any = null;
             if (includeCMC && process.env.COINMARKET_API_KEY) {
               try {
@@ -701,13 +773,16 @@ class BitgetMCPServer {
               sma50,
               sma200,
               atr,
+              rsi,
+              orderBlocks: orderBlocks,
+              liquidityZones,
               ...emaValues,
               cmc: cmc ? { status: cmc.status, data: (cmc.data && cmc.data[symbol.replace('USDT','')]) ? {
                 market_cap: cmc.data[symbol.replace('USDT','')].quote?.USD?.market_cap,
                 percent_change_24h: cmc.data[symbol.replace('USDT','')].quote?.USD?.percent_change_24h,
                 rank: cmc.data[symbol.replace('USDT','')].cmc_rank,
               } : null } : null,
-            } : { symbol, interval, candles, pivots, fvg, bos, trend, sma50, sma200, atr, emaValues, cmc };
+            } : { symbol, interval, candles, pivots, fvg, bos, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, emaValues, cmc };
 
             return { content: [ { type: 'text', text: JSON.stringify(snapshot, null, 2) } ] } as CallToolResult;
           }
