@@ -38,3 +38,11 @@ export function logNote(note: Record<string, any>): void {
     fs.appendFileSync(file, JSON.stringify(payload) + '\n', { encoding: 'utf-8' });
   } catch {}
 }
+
+export function logSnapshot(symbol: string, interval: string, latestClose: number | undefined, features: Record<string, any>): void {
+  const file = telemetryFile();
+  const payload = { ts: Date.now(), type: 'snapshot_features', symbol, interval, latestClose, features };
+  try {
+    fs.appendFileSync(file, JSON.stringify(payload) + '\n', { encoding: 'utf-8' });
+  } catch {}
+}

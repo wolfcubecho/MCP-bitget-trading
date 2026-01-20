@@ -19,7 +19,7 @@ import { BitgetConfig } from './types/bitget.js';
 import { logger } from './utils/logger.js';
 import { createBitgetWebSocketClient, BitgetWebSocketClient } from './api/websocket-client.js';
 import { cacheManager } from './utils/cache.js';
-import { logHOBs } from './utils/telemetry.js';
+import { logHOBs, logSnapshot } from './utils/telemetry.js';
 import {
   GetPriceSchema,
   GetTickerSchema,
@@ -1041,7 +1041,40 @@ class BitgetMCPServer {
               } : null } : null,
             } : { symbol, interval, candles, pivots, fvg, bos, trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks: hobFiltered, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, cmc };
 
-            if (telemetry) { try { logHOBs(symbol, interval, lastClose, hobFiltered); } catch {} }
+            if (telemetry) {
+              try {
+                logHOBs(symbol, interval, lastClose, hobFiltered);
+                const numPivotHighs = pivots.filter(p=>p.type==='H').length;
+                const numPivotLows = pivots.filter(p=>p.type==='L').length;
+                const bullFvgCount = fvg.filter(g=>g.type==='bull').length;
+                const bearFvgCount = fvg.filter(g=>g.type==='bear').length;
+                const highsClusterCount = Array.isArray(liquidityZones?.highs) ? liquidityZones.highs.length : 0;
+                const lowsClusterCount = Array.isArray(liquidityZones?.lows) ? liquidityZones.lows.length : 0;
+                const hobCount = hobFiltered.length;
+                const veryStrongCount = hobFiltered.filter((h:any)=>h.isVeryStrong).length;
+                const avgHobQuality = hobCount ? (hobFiltered.reduce((s:any,h:any)=>s+(h.qualityScore||0),0)/hobCount) : 0;
+                const maxHobQuality = hobCount ? Math.max(...hobFiltered.map((h:any)=>h.qualityScore||0)) : 0;
+                logSnapshot(symbol, interval, lastClose, {
+                  bos,
+                  trend,
+                  rsi,
+                  atr,
+                  vwapPresent: vwap!=null,
+                  numPivotHighs,
+                  numPivotLows,
+                  bullFvgCount,
+                  bearFvgCount,
+                  highsClusterCount,
+                  lowsClusterCount,
+                  orderBlocksCount: orderBlocks.length,
+                  hiddenOrderBlocksCount: hobCount,
+                  hiddenOrderBlocksVeryStrongCount: veryStrongCount,
+                  avgHobQuality,
+                  maxHobQuality,
+                  sfp,
+                });
+              } catch {}
+            }
             return { content: [ { type: 'text', text: JSON.stringify(snapshot, null, 2) } ] } as CallToolResult;
           }
 
@@ -1394,7 +1427,40 @@ class BitgetMCPServer {
               };
               const hobFiltered = hiddenOrderBlocks.filter(filterHob);
               const latest = { close: lastClose, high: highs[highs.length-1], low: lows[lows.length-1], ts: candles[candles.length-1]?.timestamp };
-              if (telemetry) { try { logHOBs(symbol, interval, lastClose, hobFiltered); } catch {} }
+              if (telemetry) {
+                try {
+                  logHOBs(symbol, interval, lastClose, hobFiltered);
+                  const numPivotHighs = pivots.filter(p=>p.type==='H').length;
+                  const numPivotLows = pivots.filter(p=>p.type==='L').length;
+                  const bullFvgCount = fvg.filter(g=>g.type==='bull').length;
+                  const bearFvgCount = fvg.filter(g=>g.type==='bear').length;
+                  const highsClusterCount = Array.isArray(liquidityZones?.highs) ? liquidityZones.highs.length : 0;
+                  const lowsClusterCount = Array.isArray(liquidityZones?.lows) ? liquidityZones.lows.length : 0;
+                  const hobCount = hobFiltered.length;
+                  const veryStrongCount = hobFiltered.filter((h:any)=>h.isVeryStrong).length;
+                  const avgHobQuality = hobCount ? (hobFiltered.reduce((s:any,h:any)=>s+(h.qualityScore||0),0)/hobCount) : 0;
+                  const maxHobQuality = hobCount ? Math.max(...hobFiltered.map((h:any)=>h.qualityScore||0)) : 0;
+                  logSnapshot(symbol, interval, lastClose, {
+                    bos,
+                    trend,
+                    rsi,
+                    atr,
+                    vwapPresent: vwap!=null,
+                    numPivotHighs,
+                    numPivotLows,
+                    bullFvgCount,
+                    bearFvgCount,
+                    highsClusterCount,
+                    lowsClusterCount,
+                    orderBlocksCount: orderBlocks.length,
+                    hiddenOrderBlocksCount: hobCount,
+                    hiddenOrderBlocksVeryStrongCount: veryStrongCount,
+                    avgHobQuality,
+                    maxHobQuality,
+                    sfp,
+                  });
+                } catch {}
+              }
               results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks: hobFiltered, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks: hobFiltered, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, fvg });
             }
             return { content: [ { type: 'text', text: JSON.stringify(results, null, 2) } ] } as CallToolResult;
