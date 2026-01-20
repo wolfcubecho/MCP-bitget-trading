@@ -615,7 +615,7 @@ class BitgetMCPServer {
             } as CallToolResult;
           }
           case 'getMarketSnapshot': {
-            const { symbol, interval, limit = 150, includeCMC = false, compact = true, emas = [20,50,200], atrPeriod = 14, fvgLookback = 60 } = (await import('./types/mcp.js')).GetMarketSnapshotSchema.parse(args);
+            const { symbol, interval, limit = 150, includeCMC = false, compact = true, emas = [20,50,200], atrPeriod = 14, fvgLookback = 60, minQuality = 0.6, requireLTFConfirmations = false, excludeInvalidated = true, onlyFullyMitigated = false } = (await import('./types/mcp.js')).GetMarketSnapshotSchema.parse(args);
             const candles = await this.bitgetClient.getCandles(symbol, interval, limit);
             const closes = candles.map(c => parseFloat(c.close));
             const highs = candles.map(c => parseFloat(c.high));
@@ -973,6 +973,16 @@ class BitgetMCPServer {
               }
             }
 
+            // Filter HOBs by quality/confirmations
+            const filterHob = (hob: any) => {
+              const ltfOk = !requireLTFConfirmations || (hob.ltfConfirmations && (hob.ltfConfirmations.bos || hob.ltfConfirmations.choch || hob.ltfConfirmations.sfp || hob.ltfConfirmations.fvgMitigation));
+              const qualityOk = typeof hob.qualityScore === 'number' && hob.qualityScore >= minQuality;
+              const invalidationOk = !excludeInvalidated || !hob.invalidated;
+              const mitigationOk = !onlyFullyMitigated || hob.fullyMitigated;
+              return ltfOk && qualityOk && invalidationOk && mitigationOk;
+            };
+            const hobFiltered = hiddenOrderBlocks.filter(filterHob);
+
             const snapshot = compact ? {
               symbol,
               interval,
@@ -986,7 +996,7 @@ class BitgetMCPServer {
               atr,
               rsi,
               orderBlocks: orderBlocks,
-              hiddenOrderBlocks,
+              hiddenOrderBlocks: hobFiltered,
               liquidityZones,
               vwap,
               dailyOpen,
@@ -1000,13 +1010,13 @@ class BitgetMCPServer {
                 percent_change_24h: cmc.data[symbol.replace('USDT','')].quote?.USD?.percent_change_24h,
                 rank: cmc.data[symbol.replace('USDT','')].cmc_rank,
               } : null } : null,
-            } : { symbol, interval, candles, pivots, fvg, bos, trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, cmc };
+            } : { symbol, interval, candles, pivots, fvg, bos, trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks: hobFiltered, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, cmc };
 
             return { content: [ { type: 'text', text: JSON.stringify(snapshot, null, 2) } ] } as CallToolResult;
           }
 
           case 'getMarketSnapshots': {
-            const { symbols, interval, limit = 150, compact = true, emas = [20,50,200], atrPeriod = 14, fvgLookback = 60 } = (await import('./types/mcp.js')).GetMarketSnapshotsSchema.parse(args);
+            const { symbols, interval, limit = 150, compact = true, emas = [20,50,200], atrPeriod = 14, fvgLookback = 60, minQuality = 0.6, requireLTFConfirmations = false, excludeInvalidated = true, onlyFullyMitigated = false } = (await import('./types/mcp.js')).GetMarketSnapshotsSchema.parse(args);
             const results: any[] = [];
             for (const symbol of symbols) {
               const candles = await this.bitgetClient.getCandles(symbol, interval, limit);
@@ -1322,8 +1332,16 @@ class BitgetMCPServer {
                     hob.components = { dispScore, wickRatio, fvgNear: !!fvgNearVal, liqScore, vwap: !!vwapConf, hvn: !!hvnConf, tfWeight };
                   }
                 }
+              const filterHob = (hob: any) => {
+                const ltfOk = !requireLTFConfirmations || (hob.ltfConfirmations && (hob.ltfConfirmations.bos || hob.ltfConfirmations.choch || hob.ltfConfirmations.sfp || hob.ltfConfirmations.fvgMitigation));
+                const qualityOk = typeof hob.qualityScore === 'number' && hob.qualityScore >= minQuality;
+                const invalidationOk = !excludeInvalidated || !hob.invalidated;
+                const mitigationOk = !onlyFullyMitigated || hob.fullyMitigated;
+                return ltfOk && qualityOk && invalidationOk && mitigationOk;
+              };
+              const hobFiltered = hiddenOrderBlocks.filter(filterHob);
               const latest = { close: lastClose, high: highs[highs.length-1], low: lows[lows.length-1], ts: candles[candles.length-1]?.timestamp };
-              results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, fvg });
+              results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks: hobFiltered, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks: hobFiltered, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, fvg });
             }
             return { content: [ { type: 'text', text: JSON.stringify(results, null, 2) } ] } as CallToolResult;
           }
