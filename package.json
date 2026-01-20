@@ -14,7 +14,9 @@
     "trade:avax": "tsx src/tools/place-avax-trade.ts",
     "trade:btc": "tsx examples/place-btc-trade.ts",
     "snapshot": "tsx examples/run-snapshot.ts BTCUSDT 1h 200",
-    "snapshot:multi": "tsx examples/run-snapshot.ts BTCUSDT,ETHUSDT,AVAXUSDT 1h 200"
+    "snapshot:multi": "tsx examples/run-snapshot.ts BTCUSDT,ETHUSDT,AVAXUSDT 1h 200",
+    "smoke": "node scripts/smoke.cjs",
+    "smoke:btc": "node scripts/smoke.cjs BTCUSDT 1h 150"
   },
   "keywords": [
     "mcp",
