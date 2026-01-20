@@ -88,6 +88,7 @@ const { BitgetRestClient } = require('../dist/api/rest-client.js');
 
     const latest = { close: lastClose, high: highs[highs.length-1], low: lows[lows.length-1], ts: timestamps[timestamps.length-1] };
     console.log(JSON.stringify({ symbol, interval, latest, orderBlocks }, null, 2));
+    process.exit(0);
   } catch (err) {
     console.error('Bitget smoke failed:', err?.message || err);
     process.exit(1);
