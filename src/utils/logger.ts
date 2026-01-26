@@ -4,6 +4,8 @@
  */
 
 import { Logger } from '../types/bitget.js';
+import fs from 'fs';
+import path from 'path';
 
 export enum LogLevel {
   DEBUG = 0,
@@ -14,9 +16,17 @@ export enum LogLevel {
 
 export class SimpleLogger implements Logger {
   private level: LogLevel;
+  private logFile: string;
 
-  constructor(level: LogLevel = LogLevel.INFO) {
+  constructor(level: LogLevel = LogLevel.INFO, logFilePath?: string) {
     this.level = level;
+    // Always resolve log file relative to project root, regardless of dist/src
+    const rootDir = process.cwd();
+    this.logFile = logFilePath || path.join(rootDir, 'logs/bitget-mcp.log');
+    // Ensure log directory exists
+    try {
+      fs.mkdirSync(path.dirname(this.logFile), { recursive: true });
+    } catch {}
   }
 
   private shouldLog(level: LogLevel): boolean {
@@ -29,27 +39,48 @@ export class SimpleLogger implements Logger {
     return `[${timestamp}] [${level}] ${message}${metaStr}`;
   }
 
+  private writeLog(level: string, message: string, meta?: any): void {
+    const formatted = this.formatMessage(level, message, meta);
+    // Write to console
+    if (level === 'ERROR') {
+      console.error(formatted);
+    } else if (level === 'WARN') {
+      console.warn(formatted);
+    } else if (level === 'INFO') {
+      console.info(formatted);
+    } else {
+      console.debug(formatted);
+    }
+    // Write to file (append)
+    try {
+      fs.appendFileSync(this.logFile, formatted + '\n', { encoding: 'utf8' });
+    } catch (err) {
+      // Print warning to console if file writing fails
+      console.warn('[LOGGER] Failed to write to log file:', this.logFile, err?.message || err);
+    }
+  }
+
   debug(message: string, meta?: any): void {
     if (this.shouldLog(LogLevel.DEBUG)) {
-      console.debug(this.formatMessage('DEBUG', message, meta));
+      this.writeLog('DEBUG', message, meta);
     }
   }
 
   info(message: string, meta?: any): void {
     if (this.shouldLog(LogLevel.INFO)) {
-      console.info(this.formatMessage('INFO', message, meta));
+      this.writeLog('INFO', message, meta);
     }
   }
 
   warn(message: string, meta?: any): void {
     if (this.shouldLog(LogLevel.WARN)) {
-      console.warn(this.formatMessage('WARN', message, meta));
+      this.writeLog('WARN', message, meta);
     }
   }
 
   error(message: string, meta?: any): void {
     if (this.shouldLog(LogLevel.ERROR)) {
-      console.error(this.formatMessage('ERROR', message, meta));
+      this.writeLog('ERROR', message, meta);
     }
   }
 

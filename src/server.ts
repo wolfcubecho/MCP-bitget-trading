@@ -73,6 +73,9 @@ class BitgetMCPServer {
 
     this.setupToolHandlers();
     this.setupWebSocketHandlers();
+
+    // Diagnostic log to test file writing
+    logger.info('Bitget MCP server started (diagnostic log for file write test)');
   }
 
   /**
@@ -616,6 +619,18 @@ class BitgetMCPServer {
             } as CallToolResult;
           }
           case 'getMarketSnapshot': {
+                        // --- HOB/telemetry filtering logic ---
+                        // TODO: Replace with actual hidden order block detection logic
+                        let hiddenOrderBlocks: any[] = [];
+                        // Filtering logic for advanced telemetry
+                        let hobFiltered = hiddenOrderBlocks.filter(hob => {
+                          if (typeof hob.qualityScore === 'number' && hob.qualityScore < minQuality) return false;
+                          if (requireLTFConfirmations && !hob.ltfConfirmed) return false;
+                          if (excludeInvalidated && hob.invalidated) return false;
+                          if (onlyFullyMitigated && !hob.fullyMitigated) return false;
+                          if (onlyVeryStrong && !(hob.isVeryStrong || (hob.qualityScore && hob.qualityScore >= veryStrongMinQuality))) return false;
+                          return true;
+                        });
             const { symbol, interval, limit = 150, includeCMC = false, compact = true, emas = [20,50,200], atrPeriod = 14, fvgLookback = 60, minQuality = 0.6, requireLTFConfirmations = false, excludeInvalidated = true, onlyFullyMitigated = false, veryStrongMinQuality = 0.75, onlyVeryStrong = false, telemetry = false } = (await import('./types/mcp.js')).GetMarketSnapshotSchema.parse(args);
             const normalizeInterval = (iv: string) => (iv === '2d' ? '1d' : iv === '4d' ? '1d' : iv === '2w' ? '1w' : iv);
             const candles = await this.bitgetClient.getCandles(symbol, interval, limit);
@@ -925,6 +940,17 @@ class BitgetMCPServer {
             const normalizeInterval = (iv: string) => (iv === '2d' ? '1d' : iv === '4d' ? '1d' : iv === '2w' ? '1w' : iv);
             const results: any[] = [];
             for (const symbol of symbols) {
+                            // --- HOB/telemetry filtering logic for batch ---
+                            // TODO: Replace with actual hidden order block detection logic
+                            let hiddenOrderBlocks: any[] = [];
+                            let hobFiltered = hiddenOrderBlocks.filter(hob => {
+                              if (typeof hob.qualityScore === 'number' && hob.qualityScore < minQuality) return false;
+                              if (requireLTFConfirmations && !hob.ltfConfirmed) return false;
+                              if (excludeInvalidated && hob.invalidated) return false;
+                              if (onlyFullyMitigated && !hob.fullyMitigated) return false;
+                              if (onlyVeryStrong && !(hob.isVeryStrong || (hob.qualityScore && hob.qualityScore >= veryStrongMinQuality))) return false;
+                              return true;
+                            });
               const candles = await this.bitgetClient.getCandles(symbol, interval, limit);
               if (!candles.length) { results.push({ symbol, error: 'no_candles' }); continue; }
               const closes = candles.map(c => parseFloat(c.close));
@@ -1118,7 +1144,6 @@ class BitgetMCPServer {
               /* Duplicate liquidity/OB block removed: already computed above */
 
               const latest = { close: lastClose, high: highs[highs.length-1], low: lows[lows.length-1], ts: candles[candles.length-1]?.timestamp };
-<<<<<<< HEAD
               if (telemetry) {
                 try {
                   logHOBs(symbol, interval, lastClose, hobFiltered);
@@ -1154,9 +1179,6 @@ class BitgetMCPServer {
                 } catch {}
               }
               results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks: hobFiltered, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks: hobFiltered, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, fvg });
-=======
-              results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, fvg });
->>>>>>> 4ae2db0 (Cleanup: Remove broken test scripts and Bitget SDK experiments. Only keep working server code.)
             }
             return { content: [ { type: 'text', text: JSON.stringify(results, null, 2) } ] } as CallToolResult;
           }
@@ -1165,76 +1187,192 @@ class BitgetMCPServer {
 
           // Account
           case 'getBalance': {
-            const { asset } = GetBalanceSchema.parse(args);
-            const balance = await this.bitgetClient.getBalance(asset);
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify(balance, null, 2),
-                },
-              ],
-            } as CallToolResult;
+            logger.info('getBalance called', { args });
+            let asset;
+            try {
+              asset = GetBalanceSchema.parse(args).asset;
+            } catch (parseErr) {
+              logger.error('Failed to parse getBalance args', { error: parseErr, args });
+              return {
+                content: [
+                  { type: 'text', text: `[Bitget MCP] Failed to parse getBalance args: ${parseErr}` }
+                ],
+                isError: true
+              } as CallToolResult;
+            }
+            try {
+              const balance = await this.bitgetClient.getBalance(asset);
+              logger.info('getBalance result', { asset, balance });
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: JSON.stringify(balance, null, 2),
+                  },
+                ],
+              } as CallToolResult;
+            } catch (err) {
+              logger.error('getBalance error', { error: err, asset });
+              return {
+                content: [
+                  { type: 'text', text: `[Bitget MCP] getBalance error: ${err}` }
+                ],
+                isError: true
+              } as CallToolResult;
+            }
           }
 
           // Trading
           case 'placeOrder': {
-            const orderParams = PlaceOrderSchema.parse(args);
-            console.error('Received placeOrder request:', JSON.stringify(orderParams, null, 2));
-            
+            let orderParams;
+            try {
+              orderParams = PlaceOrderSchema.parse(args);
+            } catch (parseErr) {
+              logger.error('Failed to parse placeOrder args', { error: parseErr, args });
+              return {
+                content: [
+                  { type: 'text', text: `[Bitget MCP] Failed to parse placeOrder args: ${parseErr}` }
+                ],
+                isError: true
+              } as CallToolResult;
+            }
+            logger.info('Received placeOrder request', { orderParams });
             // Determine if this is a futures order
             const isFutures = orderParams.marginCoin || orderParams.marginMode || orderParams.symbol.includes('_UMCBL') || orderParams.symbol.includes('_');
-            console.error(`Order type detected: ${isFutures ? 'futures' : 'spot'}`);
-            
-            const order = await this.bitgetClient.placeOrder(orderParams);
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: `Order placed successfully (${isFutures ? 'futures' : 'spot'}):\\n${JSON.stringify(order, null, 2)}`,
-                },
-              ],
-            } as CallToolResult;
+            logger.info('Order type detected', { isFutures, symbol: orderParams.symbol });
+            try {
+              const order = await this.bitgetClient.placeOrder(orderParams);
+              logger.info('placeOrder result', { order });
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `Order placed successfully (${isFutures ? 'futures' : 'spot'}):\n${JSON.stringify(order, null, 2)}`,
+                  },
+                ],
+              } as CallToolResult;
+            } catch (err) {
+              const errMsg = (err && typeof err === 'object' && 'stack' in err) ? (err as any).stack : String(err);
+              logger.error('placeOrder error', { error: errMsg, orderParams });
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `[Bitget MCP] placeOrder error: ${errMsg}`,
+                  },
+                ],
+                isError: true
+              } as CallToolResult;
+            }
           }
 
           case 'cancelOrder': {
-            const { orderId, symbol } = CancelOrderSchema.parse(args);
-            const success = await this.bitgetClient.cancelOrder(orderId, symbol);
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: success ? `Order ${orderId} cancelled successfully` : `Failed to cancel order ${orderId}`,
-                },
-              ],
-            } as CallToolResult;
+            logger.info('cancelOrder called', { args });
+            let orderId, symbol;
+            try {
+              ({ orderId, symbol } = CancelOrderSchema.parse(args));
+            } catch (parseErr) {
+              logger.error('Failed to parse cancelOrder args', { error: parseErr, args });
+              return {
+                content: [
+                  { type: 'text', text: `[Bitget MCP] Failed to parse cancelOrder args: ${parseErr}` }
+                ],
+                isError: true
+              } as CallToolResult;
+            }
+            try {
+              const success = await this.bitgetClient.cancelOrder(orderId, symbol);
+              logger.info('cancelOrder result', { orderId, symbol, success });
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: success ? `Order ${orderId} cancelled successfully` : `Failed to cancel order ${orderId}`,
+                  },
+                ],
+              } as CallToolResult;
+            } catch (err) {
+              logger.error('cancelOrder error', { error: err, orderId, symbol });
+              return {
+                content: [
+                  { type: 'text', text: `[Bitget MCP] cancelOrder error: ${err}` }
+                ],
+                isError: true
+              } as CallToolResult;
+            }
           }
 
           case 'getOrders': {
-            const { symbol, status } = GetOrdersSchema.parse(args);
-            const orders = await this.bitgetClient.getOrders(symbol, status);
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify(orders, null, 2),
-                },
-              ],
-            } as CallToolResult;
+            logger.info('getOrders called', { args });
+            let symbol, status;
+            try {
+              ({ symbol, status } = GetOrdersSchema.parse(args));
+            } catch (parseErr) {
+              logger.error('Failed to parse getOrders args', { error: parseErr, args });
+              return {
+                content: [
+                  { type: 'text', text: `[Bitget MCP] Failed to parse getOrders args: ${parseErr}` }
+                ],
+                isError: true
+              } as CallToolResult;
+            }
+            try {
+              const orders = await this.bitgetClient.getOrders(symbol, status);
+              logger.info('getOrders result', { symbol, status, orders });
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: JSON.stringify(orders, null, 2),
+                  },
+                ],
+              } as CallToolResult;
+            } catch (err) {
+              logger.error('getOrders error', { error: err, symbol, status });
+              return {
+                content: [
+                  { type: 'text', text: `[Bitget MCP] getOrders error: ${err}` }
+                ],
+                isError: true
+              } as CallToolResult;
+            }
           }
 
           // Futures
           case 'getPositions': {
-            const { symbol } = GetPositionsSchema.parse(args);
-            const positions = await this.bitgetClient.getFuturesPositions(symbol);
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify(positions, null, 2),
-                },
-              ],
-            } as CallToolResult;
+            logger.info('getPositions called', { args });
+            let symbol;
+            try {
+              ({ symbol } = GetPositionsSchema.parse(args));
+            } catch (parseErr) {
+              logger.error('Failed to parse getPositions args', { error: parseErr, args });
+              return {
+                content: [
+                  { type: 'text', text: `[Bitget MCP] Failed to parse getPositions args: ${parseErr}` }
+                ],
+                isError: true
+              } as CallToolResult;
+            }
+            try {
+              const positions = await this.bitgetClient.getFuturesPositions(symbol);
+              logger.info('getPositions result', { symbol, positions });
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: JSON.stringify(positions, null, 2),
+                  },
+                ],
+              } as CallToolResult;
+            } catch (err) {
+              logger.error('getPositions error', { error: err, symbol });
+              return {
+                content: [
+                  { type: 'text', text: `[Bitget MCP] getPositions error: ${err}` }
+                ],
+                isError: true
+              } as CallToolResult;
+            }
           }
 
           case 'setLeverage': {

@@ -356,6 +356,7 @@ export class BitgetRestClient {
     }
 
     let price: string = '';
+      logger.info('getPrice called', { symbol });
     
     if (this.isFuturesSymbol(symbol)) {
       // Futures ticker (v2 API requires symbol without _UMCBL and productType)
@@ -387,6 +388,10 @@ export class BitgetRestClient {
     // Cache the result
     priceCache.set(cacheKey, price);
     return price;
+      } catch (err) {
+        logger.error('getPrice error', { error: err, symbol });
+        throw err;
+      }
   }
 
   /**
@@ -1000,6 +1005,7 @@ export class BitgetRestClient {
    * Get futures positions
    */
   async getFuturesPositions(symbol?: string): Promise<Position[]> {
+    logger.info('getTicker called', { symbol });
     const params: any = { productType: 'USDT-FUTURES' };
     if (symbol) {
       // Add _UMCBL suffix for futures if not present
@@ -1019,6 +1025,7 @@ export class BitgetRestClient {
       pnlPercent: position.unrealizedPLR || '0',
       margin: position.margin || position.marginSize,
       leverage: position.leverage,
+    try {
       timestamp: parseInt(position.cTime || Date.now().toString())
     }));
   }
@@ -1073,6 +1080,10 @@ export class BitgetRestClient {
    * Cancel a futures plan order (by orderId or clientOid)
    */
   async cancelFuturesPlanOrder(options: { symbol?: string; orderId?: string; clientOid?: string; planType?: 'normal_plan' | 'track_plan' | 'profit_loss' }): Promise<boolean> {
+    } catch (err) {
+      logger.error('getTicker error', { error: err, symbol });
+      throw err;
+    }
     const payload: any = {
       productType: 'USDT-FUTURES',
       marginCoin: 'USDT',
