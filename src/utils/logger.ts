@@ -54,7 +54,7 @@ export class SimpleLogger implements Logger {
     // Write to file (append)
     try {
       fs.appendFileSync(this.logFile, formatted + '\n', { encoding: 'utf8' });
-    } catch (err) {
+    } catch (err: any) {
       // Print warning to console if file writing fails
       console.warn('[LOGGER] Failed to write to log file:', this.logFile, err?.message || err);
     }

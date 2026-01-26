@@ -356,42 +356,49 @@ export class BitgetRestClient {
     }
 
     let price: string = '';
-      logger.info('getPrice called', { symbol });
     
-    if (this.isFuturesSymbol(symbol)) {
-      // Futures ticker (v2 API requires symbol without _UMCBL and productType)
-      const cleanSymbol = symbol.replace('_UMCBL', '');
-      const response = await this.request<any>('GET', '/api/v2/mix/market/ticker', { 
-        symbol: cleanSymbol,
-        productType: 'USDT-FUTURES'
-      });
-      if (response.data?.last) {
-        price = response.data.last;
-      } else {
-        throw new Error(`Price not found for symbol: ${symbol}`);
-      }
-    } else {
-      // Spot ticker - use v2 public API
-      const response = await this.request<any>('GET', '/api/v2/spot/market/tickers', {});
-      if (response.data && Array.isArray(response.data)) {
-        const ticker = response.data.find((t: any) => t.symbol === symbol);
-        if (ticker) {
-          price = ticker.close;
+    try {
+      logger.info('getPrice called', { symbol });
+      
+      if (this.isFuturesSymbol(symbol)) {
+        // Futures ticker (v2 API requires symbol without _UMCBL and productType)
+        const cleanSymbol = symbol.replace('_UMCBL', '');
+        const response = await this.request<any>('GET', '/api/v2/mix/market/ticker', { 
+          symbol: cleanSymbol,
+          productType: 'USDT-FUTURES'
+        });
+        
+        // v2 API returns data as array: [{symbol, lastPr, bidPr, askPr, ...}]
+        const tickerArray = Array.isArray(response.data) ? response.data : [response.data];
+        const tickerData = tickerArray[0];
+        
+        if (tickerData?.lastPr || tickerData?.last) {
+          price = tickerData.lastPr || tickerData.last;
         } else {
           throw new Error(`Price not found for symbol: ${symbol}`);
         }
       } else {
-        throw new Error(`Price not found for symbol: ${symbol}`);
+        // Spot ticker - use v2 public API
+        const response = await this.request<any>('GET', '/api/v2/spot/market/tickers', {});
+        if (response.data && Array.isArray(response.data)) {
+          const ticker = response.data.find((t: any) => t.symbol === symbol);
+          if (ticker) {
+            price = ticker.close;
+          } else {
+            throw new Error(`Price not found for symbol: ${symbol}`);
+          }
+        } else {
+          throw new Error(`Price not found for symbol: ${symbol}`);
+        }
       }
+      
+      // Cache the result
+      priceCache.set(cacheKey, price);
+      return price;
+    } catch (err) {
+      logger.error('getPrice error', { error: err, symbol });
+      throw err;
     }
-    
-    // Cache the result
-    priceCache.set(cacheKey, price);
-    return price;
-      } catch (err) {
-        logger.error('getPrice error', { error: err, symbol });
-        throw err;
-      }
   }
 
   /**
@@ -422,23 +429,27 @@ export class BitgetRestClient {
     if (this.isFuturesSymbol(symbol)) {
       // Futures ticker (v2 API requires symbol without _UMCBL and productType)
       const cleanSymbol = symbol.replace('_UMCBL', '');
-      const response = await this.request<any>('GET', '/api/v2/mix/market/ticker', { 
+      const response = await this.request<any>('GET', '/api/v2/mix/market/ticker', {
         symbol: cleanSymbol,
         productType: 'USDT-FUTURES'
       });
-      if (response.data) {
-        const tickerData = response.data;
+      // v2 API returns data as array: [{symbol, lastPr, bidPr, askPr, ...}]
+      const tickerArray = Array.isArray(response.data) ? response.data : [response.data];
+      const tickerData = tickerArray[0];
+      if (tickerData && (tickerData.lastPr || tickerData.last)) {
+        const lastPrice = tickerData.lastPr || tickerData.last;
+        const openPrice = tickerData.openUtc || tickerData.open24h || lastPrice;
         ticker = {
-          symbol: tickerData.symbol,
-          last: tickerData.last,
-          bid: tickerData.bestBid,
-          ask: tickerData.bestAsk,
-          high24h: tickerData.high24h,
-          low24h: tickerData.low24h,
-          volume24h: tickerData.baseVolume,
-          change24h: ((parseFloat(tickerData.last) - parseFloat(tickerData.openUtc)) / parseFloat(tickerData.openUtc) * 100).toFixed(2),
-          changePercent24h: tickerData.priceChangePercent,
-          timestamp: parseInt(tickerData.timestamp) || Date.now()
+          symbol: tickerData.symbol || cleanSymbol,
+          last: lastPrice,
+          bid: tickerData.bidPr || tickerData.bestBid || '',
+          ask: tickerData.askPr || tickerData.bestAsk || '',
+          high24h: tickerData.high24h || '',
+          low24h: tickerData.low24h || '',
+          volume24h: tickerData.baseVolume || tickerData.quoteVolume || '',
+          change24h: ((parseFloat(lastPrice) - parseFloat(openPrice)) / parseFloat(openPrice) * 100).toFixed(2),
+          changePercent24h: tickerData.change24h || tickerData.priceChangePercent || '',
+          timestamp: parseInt(tickerData.ts || tickerData.timestamp) || Date.now()
         };
       } else {
         throw new Error(`Ticker not found for symbol: ${symbol}`);
@@ -1005,29 +1016,32 @@ export class BitgetRestClient {
    * Get futures positions
    */
   async getFuturesPositions(symbol?: string): Promise<Position[]> {
-    logger.info('getTicker called', { symbol });
-    const params: any = { productType: 'USDT-FUTURES' };
-    if (symbol) {
-      // Add _UMCBL suffix for futures if not present
-      params.symbol = symbol.includes('_') ? symbol : `${symbol}_UMCBL`;
-    }
-
-    const response = await this.request<any>('GET', '/api/v2/mix/position/all-position', params, true);
-
-    const positions = response.data || [];
-    return positions.map((position: any) => ({
-      symbol: position.symbol,
-      side: position.holdSide || (parseFloat(position.size || '0') > 0 ? 'long' : 'short'),
-      size: Math.abs(parseFloat(position.size || position.total || '0')).toString(),
-      entryPrice: position.averageOpenPrice || position.openPriceAvg,
-      markPrice: position.markPrice,
-      pnl: position.unrealizedPL || position.achievedProfits,
-      pnlPercent: position.unrealizedPLR || '0',
-      margin: position.margin || position.marginSize,
-      leverage: position.leverage,
     try {
-      timestamp: parseInt(position.cTime || Date.now().toString())
-    }));
+      const params: any = { productType: 'USDT-FUTURES' };
+      if (symbol) {
+        // Add _UMCBL suffix for futures if not present
+        params.symbol = symbol.includes('_') ? symbol : `${symbol}_UMCBL`;
+      }
+
+      const response = await this.request<any>('GET', '/api/v2/mix/position/all-position', params, true);
+
+      const positions = response.data || [];
+      return positions.map((position: any) => ({
+        symbol: position.symbol,
+        side: position.holdSide || (parseFloat(position.size || '0') > 0 ? 'long' : 'short'),
+        size: Math.abs(parseFloat(position.size || position.total || '0')).toString(),
+        entryPrice: position.averageOpenPrice || position.openPriceAvg,
+        markPrice: position.markPrice,
+        pnl: position.unrealizedPL || position.achievedProfits,
+        pnlPercent: position.unrealizedPLR || '0',
+        margin: position.margin || position.marginSize,
+        leverage: position.leverage,
+        timestamp: parseInt(position.cTime || Date.now().toString())
+      }));
+    } catch (err) {
+      logger.error('getFuturesPositions error', { error: err, symbol });
+      throw err;
+    }
   }
 
   /**
@@ -1080,10 +1094,6 @@ export class BitgetRestClient {
    * Cancel a futures plan order (by orderId or clientOid)
    */
   async cancelFuturesPlanOrder(options: { symbol?: string; orderId?: string; clientOid?: string; planType?: 'normal_plan' | 'track_plan' | 'profit_loss' }): Promise<boolean> {
-    } catch (err) {
-      logger.error('getTicker error', { error: err, symbol });
-      throw err;
-    }
     const payload: any = {
       productType: 'USDT-FUTURES',
       marginCoin: 'USDT',
