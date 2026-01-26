@@ -11,12 +11,7 @@
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
-    "trade:avax": "tsx src/tools/place-avax-trade.ts",
-    "trade:btc": "tsx examples/place-btc-trade.ts",
-    "snapshot": "tsx examples/run-snapshot.ts BTCUSDT 1h 200",
-    "snapshot:multi": "tsx examples/run-snapshot.ts BTCUSDT,ETHUSDT,AVAXUSDT 1h 200",
-    "smoke": "node scripts/smoke.cjs",
-    "smoke:btc": "node scripts/smoke.cjs BTCUSDT 1h 150"
+    "trade:avax": "tsx src/tools/place-avax-trade.ts"
   },
   "keywords": [
     "mcp",
@@ -30,10 +25,11 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.5.0",
+    "bitget-api": "^3.1.1",
+    "ccxt": "github:wolfcubecho/ccxt",
     "crypto": "^1.0.1",
     "dotenv": "^16.3.1",
     "node-fetch": "^3.3.2",
-    "ccxt": "github:wolfcubecho/ccxt",
     "ws": "^8.16.0",
     "zod": "^3.22.4"
   },

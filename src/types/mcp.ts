@@ -207,7 +207,7 @@ export type PlacePlanOrderParams = z.infer<typeof PlacePlanOrderSchema>;
 // Market Snapshot Schema
 export const GetMarketSnapshotSchema = z.object({
   symbol: z.string().describe('Trading pair symbol (e.g., BTCUSDT or AVAXUSDT)'),
-  interval: z.enum(['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d','2d','4d','1w','2w']).describe('Analysis interval'),
+  interval: z.enum(['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d']).describe('Analysis interval'),
   limit: z.number().optional().default(150).describe('Number of candles to analyze (default 150)'),
   includeCMC: z.boolean().optional().default(false).describe('If true and COINMARKET_API_KEY provided, include CMC metadata'),
   compact: z.boolean().optional().default(true).describe('If true, return trimmed summary'),
@@ -219,15 +219,15 @@ export const GetMarketSnapshotSchema = z.object({
   excludeInvalidated: z.boolean().optional().default(true).describe('Exclude HOBs marked invalidated'),
   onlyFullyMitigated: z.boolean().optional().default(false).describe('Include only fully mitigated HOBs'),
   veryStrongMinQuality: z.number().optional().default(0.75).describe('Quality threshold to flag very-strong setups'),
-  onlyVeryStrong: z.boolean().optional().default(false).describe('Filter to return only very-strong setups')
-  ,telemetry: z.boolean().optional().default(false).describe('If true, log HOBs to data/telemetry.jsonl for learning')
+  onlyVeryStrong: z.boolean().optional().default(false).describe('Filter to return only very-strong setups'),
+  telemetry: z.boolean().optional().default(false).describe('If true, log HOBs to data/telemetry.jsonl for learning')
 });
 
 export type GetMarketSnapshotParams = z.infer<typeof GetMarketSnapshotSchema>;
 
 export const GetMarketSnapshotsSchema = z.object({
   symbols: z.array(z.string()).describe('Array of trading symbols (e.g., ["BTCUSDT","ETHUSDT"])'),
-  interval: z.enum(['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d','2d','4d','1w','2w']).describe('Analysis interval'),
+  interval: z.enum(['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d']).describe('Analysis interval'),
   limit: z.number().optional().default(150).describe('Number of candles to analyze'),
   compact: z.boolean().optional().default(true).describe('If true, return trimmed summary'),
   emas: z.array(z.number()).optional().default([20,50,200]).describe('EMA periods'),
@@ -238,8 +238,8 @@ export const GetMarketSnapshotsSchema = z.object({
   excludeInvalidated: z.boolean().optional().default(true).describe('Exclude HOBs marked invalidated'),
   onlyFullyMitigated: z.boolean().optional().default(false).describe('Include only fully mitigated HOBs'),
   veryStrongMinQuality: z.number().optional().default(0.75).describe('Quality threshold to flag very-strong setups'),
-  onlyVeryStrong: z.boolean().optional().default(false).describe('Filter to return only very-strong setups')
-  ,telemetry: z.boolean().optional().default(false).describe('If true, log HOBs to data/telemetry.jsonl for learning')
+  onlyVeryStrong: z.boolean().optional().default(false).describe('Filter to return only very-strong setups'),
+  telemetry: z.boolean().optional().default(false).describe('If true, log HOBs to data/telemetry.jsonl for learning')
 });
 
 export type GetMarketSnapshotsParams = z.infer<typeof GetMarketSnapshotsSchema>;

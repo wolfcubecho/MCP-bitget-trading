@@ -170,7 +170,7 @@ class BitgetMCPServer {
                         type: 'object',
                         properties: {
                           symbol: { type: 'string', description: 'Trading pair symbol (e.g., BTCUSDT)' },
-                          interval: { type: 'string', enum: ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d','2d','4d','1w','2w'], description: 'Interval to analyze' },
+                          interval: { type: 'string', enum: ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d'], description: 'Interval to analyze' },
                           limit: { type: 'number', description: 'Candles to analyze (default 150)' },
                           includeCMC: { type: 'boolean', description: 'Include CMC metadata if API key provided' },
                           compact: { type: 'boolean', description: 'Return trimmed summary (default true)' },
@@ -188,7 +188,7 @@ class BitgetMCPServer {
                         type: 'object',
                         properties: {
                           symbols: { type: 'array', items: { type: 'string' }, description: 'Symbols to analyze' },
-                          interval: { type: 'string', enum: ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d','2d','4d','1w','2w'], description: 'Interval to analyze' },
+                          interval: { type: 'string', enum: ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d'], description: 'Interval to analyze' },
                           limit: { type: 'number', description: 'Candles to analyze (default 150)' },
                           compact: { type: 'boolean', description: 'Trim results' },
                           emas: { type: 'array', items: { type: 'number' }, description: 'EMA periods' },
@@ -619,14 +619,6 @@ class BitgetMCPServer {
             const { symbol, interval, limit = 150, includeCMC = false, compact = true, emas = [20,50,200], atrPeriod = 14, fvgLookback = 60, minQuality = 0.6, requireLTFConfirmations = false, excludeInvalidated = true, onlyFullyMitigated = false, veryStrongMinQuality = 0.75, onlyVeryStrong = false, telemetry = false } = (await import('./types/mcp.js')).GetMarketSnapshotSchema.parse(args);
             const normalizeInterval = (iv: string) => (iv === '2d' ? '1d' : iv === '4d' ? '1d' : iv === '2w' ? '1w' : iv);
             const candles = await this.bitgetClient.getCandles(symbol, interval, limit);
-            // If unsupported interval was requested, refetch with normalized one
-            if (!candles.length && (interval === '2d' || interval === '4d' || interval === '2w')) {
-              const norm = normalizeInterval(interval);
-              const refetched = await this.bitgetClient.getCandles(symbol, norm, limit);
-              if (refetched.length) {
-                (candles as any) = refetched;
-              }
-            }
             const closes = candles.map(c => parseFloat(c.close));
             const highs = candles.map(c => parseFloat(c.high));
             const lows = candles.map(c => parseFloat(c.low));
@@ -863,155 +855,6 @@ class BitgetMCPServer {
               }
             }
 
-            // Hidden Order Blocks (mitigation tracker: wick/partial close without invalidation of OB core)
-            const hiddenOrderBlocks: Array<{ type: 'bull'|'bear'; idx: number; zone: { open: number; close: number; high: number; low: number }; revisitIdx: number; wickThrough: boolean; partialClose: boolean; coreUntouched: boolean }> = [];
-            for (const ob of orderBlocks) {
-              const bodyLow = Math.min(ob.open, ob.close);
-              const bodyHigh = Math.max(ob.open, ob.close);
-              let revisitIdx = -1;
-              for (let i = ob.idx + 1; i < candles.length; i++) {
-                if (highs[i] >= bodyLow && lows[i] <= bodyHigh) { revisitIdx = i; break; }
-              }
-              if (revisitIdx !== -1) {
-                if (ob.type === 'bull') {
-                  const invalidated = closes[revisitIdx] < bodyLow;
-                  const wickThrough = lows[revisitIdx] < bodyLow && closes[revisitIdx] >= bodyLow;
-                  const partialClose = closes[revisitIdx] >= bodyLow && closes[revisitIdx] <= bodyHigh;
-                  if (!invalidated && (wickThrough || partialClose)) {
-                    hiddenOrderBlocks.push({ type: 'bull', idx: ob.idx, zone: { open: ob.open, close: ob.close, high: ob.high, low: ob.low }, revisitIdx, wickThrough, partialClose, coreUntouched: true });
-                  }
-                } else {
-                  const invalidated = closes[revisitIdx] > bodyHigh;
-                  const wickThrough = highs[revisitIdx] > bodyHigh && closes[revisitIdx] <= bodyHigh;
-                  const partialClose = closes[revisitIdx] >= bodyLow && closes[revisitIdx] <= bodyHigh;
-                  if (!invalidated && (wickThrough || partialClose)) {
-                    hiddenOrderBlocks.push({ type: 'bear', idx: ob.idx, zone: { open: ob.open, close: ob.close, high: ob.high, low: ob.low }, revisitIdx, wickThrough, partialClose, coreUntouched: true });
-                  }
-                }
-              }
-            }
-
-            // Enrich HOBs: fully mitigated, LTF confirmations, quality score
-            {
-              const intervalMsMap: Record<string, number> = { '1m': 60_000, '3m': 180_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '6h': 21_600_000, '12h': 43_200_000, '1d': 86_400_000, '2d': 172_800_000, '4d': 345_600_000, '1w': 604_800_000, '2w': 1_209_600_000 };
-              const ltfMap: Record<string, string> = { '2w': '1d', '1w': '4h', '4d': '1h', '2d': '30m', '1d': '1h', '12h': '1h', '6h': '30m', '4h': '30m', '1h': '15m', '30m': '5m', '15m': '5m', '5m': '1m' };
-              const tfWeightMap: Record<string, number> = { '1m': 0.5, '5m': 0.7, '15m': 0.8, '30m': 0.9, '1h': 1.0, '4h': 1.1, '1d': 1.2, '2d': 1.25, '4d': 1.3, '1w': 1.35, '2w': 1.4 };
-              const intervalMs = intervalMsMap[interval] ?? 3_600_000;
-              const ltfInterval = ltfMap[interval] ?? null;
-              const volSorted = [...volumes].sort((a,b)=>a-b);
-              const vol75 = volSorted[Math.floor(volSorted.length * 0.75)] || 0;
-              const baseATR = atr ?? Math.max(1e-8, highs[highs.length - 1] - lows[lows.length - 1]);
-              const nearFvg = (type: 'bull'|'bear', obIdx: number) => fvg.some(g => g.type === type && g.startIdx >= obIdx - 2 && g.startIdx <= obIdx + 4);
-              const nearestLiquidityScore = (type: 'bull'|'bear', zoneMid: number) => {
-                const levels = type === 'bull' ? liquidityZones.lows : liquidityZones.highs;
-                let best = Infinity; for (const l of levels) { const d = Math.abs(zoneMid - l.level); if (d < best) best = d; }
-                if (!Number.isFinite(best)) return 0; const norm = best / baseATR; return Math.max(0, 1 - Math.min(1, norm));
-              };
-              const vwapConfluence = (zoneMid: number) => { if (vwap == null) return false; const diff = Math.abs(zoneMid - vwap); return (diff / baseATR) <= 0.5; };
-              const hvnConfluence = (obIdx: number) => volumes[obIdx] >= vol75;
-
-              const computeLtfConfirmations = async (revisitTs: number, type: 'bull'|'bear') => {
-                try {
-                  if (!ltfInterval) return { bos: false, choch: false, sfp: false, fvgMitigation: false };
-                  const ltfCandles = await this.bitgetClient.getCandles(symbol, ltfInterval, 300);
-                  const series = ltfCandles.map(c => ({ ts: c.timestamp, o: +c.open, h: +c.high, l: +c.low, c: +c.close }));
-                  const windowStart = revisitTs; const windowEnd = revisitTs + 3 * intervalMs;
-                  const subset = series.filter((c: { ts: number }) => c.ts >= windowStart && c.ts <= windowEnd);
-                  if (subset.length < 5) return { bos: false, choch: false, sfp: false, fvgMitigation: false };
-                  const highsL = subset.map((c: any)=>c.h), lowsL = subset.map((c: any)=>c.l), closesL = subset.map((c: any)=>c.c);
-                  const preRangeHigh = Math.max(...highsL.slice(0, Math.max(1, Math.floor(highsL.length/3))));
-                  const preRangeLow = Math.min(...lowsL.slice(0, Math.max(1, Math.floor(lowsL.length/3))));
-                  const bos = type === 'bull' ? (Math.max(...closesL) > preRangeHigh) : (Math.min(...closesL) < preRangeLow);
-                  const firstMoves = closesL.slice(0, 3).map((v: number, i: number)=> i>0 ? v - closesL[i-1] : 0);
-                  const initialOpposite = type === 'bull' ? (firstMoves[1] < 0) : (firstMoves[1] > 0);
-                  const choch = initialOpposite && bos;
-                  // SFP heuristics
-                  const tol = baseATR * 0.1; let sfp = false;
-                  for (let i = 2; i < subset.length; i++) {
-                    if (type === 'bear' && highsL[i] > preRangeHigh + tol && closesL[i] < preRangeHigh) { sfp = true; break; }
-                    if (type === 'bull' && lowsL[i] < preRangeLow - tol && closesL[i] > preRangeLow) { sfp = true; break; }
-                  }
-                  // FVG mitigation
-                  let fvgMitigation = false;
-                  for (let i = 2; i < subset.length; i++) {
-                    const bullGap = lowsL[i] > highsL[i-2]; const bearGap = highsL[i] < lowsL[i-2];
-                    if (bullGap || bearGap) {
-                      const filled = (i+1 < subset.length) && (lowsL[i+1] <= highsL[i-2] || highsL[i+1] >= lowsL[i-2]);
-                      if (filled) { fvgMitigation = true; break; }
-                    }
-                  }
-                  return { bos, choch, sfp, fvgMitigation };
-                } catch { return { bos: false, choch: false, sfp: false, fvgMitigation: false }; }
-              };
-
-              for (let i = 0; i < hiddenOrderBlocks.length; i++) {
-                const hob: any = hiddenOrderBlocks[i];
-                const zoneMid = (hob.zone.open + hob.zone.close) / 2;
-                // Mitigation/invalidated tracking after revisit
-                let invalidated = false; let fullyMitigated = false;
-                for (let j = hob.revisitIdx + 1; j < candles.length; j++) {
-                  if (hob.type === 'bull') { if (closes[j] < Math.min(hob.zone.open, hob.zone.close)) { invalidated = true; break; } }
-                  else { if (closes[j] > Math.max(hob.zone.open, hob.zone.close)) { invalidated = true; break; } }
-                  const bodyLow = Math.min(opens[j], closes[j]); const bodyHigh = Math.max(opens[j], closes[j]);
-                  if (hob.type === 'bull' && bodyLow > Math.max(hob.zone.open, hob.zone.close)) { fullyMitigated = true; }
-                  if (hob.type === 'bear' && bodyHigh < Math.min(hob.zone.open, hob.zone.close)) { fullyMitigated = true; }
-                }
-                const ltf = await computeLtfConfirmations(timestamps[hob.revisitIdx], hob.type);
-                const windowN = Math.min(5, closes.length - 1 - hob.idx);
-                const disp = windowN > 0 ? Math.abs(closes[hob.idx + windowN] - closes[hob.idx]) / baseATR : 0;
-                const dispScore = Math.min(1, disp / 2);
-                const rvIdx = hob.revisitIdx;
-                const wickRatio = hob.type === 'bull' ? Math.max(0, Math.min(1, (Math.min(hob.zone.open, hob.zone.close) - lows[rvIdx]) / Math.max(1e-8, highs[rvIdx] - lows[rvIdx]))) : Math.max(0, Math.min(1, (highs[rvIdx] - Math.max(hob.zone.open, hob.zone.close)) / Math.max(1e-8, highs[rvIdx] - lows[rvIdx])));
-                const fvgNearVal = nearFvg(hob.type, hob.idx) ? 1 : 0;
-                const liqScore = nearestLiquidityScore(hob.type, zoneMid);
-                const vwapConf = vwapConfluence(zoneMid) ? 1 : 0;
-                const hvnConf = hvnConfluence(hob.idx) ? 1 : 0;
-                const tfWeight = tfWeightMap[interval] ?? 1.0;
-                const qualityScore = (
-                  0.35 * dispScore +
-                  0.15 * wickRatio +
-                  0.15 * fvgNearVal +
-                  0.15 * liqScore +
-                  0.1  * vwapConf +
-                  0.1  * hvnConf
-                ) * tfWeight;
-                const confCount = (ltf.bos?1:0) + (ltf.choch?1:0) + (ltf.sfp?1:0) + (ltf.fvgMitigation?1:0);
-                const confConfluence = (vwapConf?1:0) + (hvnConf?1:0) + ((liqScore >= 0.5)?1:0) + ((fvgNearVal?1:0));
-                const isVeryStrong = !invalidated && (qualityScore >= veryStrongMinQuality) && (tfWeight >= 1.3) && (confCount >= 2) && (confConfluence >= 2);
-                const veryStrongReasons: string[] = [];
-                if (qualityScore >= veryStrongMinQuality) veryStrongReasons.push('quality>=threshold');
-                if (tfWeight >= 1.3) veryStrongReasons.push('htf_weight_high');
-                if (ltf.bos) veryStrongReasons.push('ltf_bos');
-                if (ltf.choch) veryStrongReasons.push('ltf_choch');
-                if (ltf.sfp) veryStrongReasons.push('ltf_sfp');
-                if (ltf.fvgMitigation) veryStrongReasons.push('ltf_fvg_mitigation');
-                if (vwapConf) veryStrongReasons.push('vwap_confluence');
-                if (hvnConf) veryStrongReasons.push('hvn_confluence');
-                if (liqScore >= 0.5) veryStrongReasons.push('near_liquidity');
-                if (fvgNearVal) veryStrongReasons.push('fvg_near');
-                if (fullyMitigated) veryStrongReasons.push('fully_mitigated');
-                hob.invalidated = invalidated;
-                hob.fullyMitigated = fullyMitigated && !invalidated;
-                hob.ltfConfirmations = ltf;
-                hob.qualityScore = Number(qualityScore.toFixed(3));
-                hob.components = { dispScore, wickRatio, fvgNear: !!fvgNearVal, liqScore, vwap: !!vwapConf, hvn: !!hvnConf, tfWeight };
-                hob.isVeryStrong = isVeryStrong;
-                hob.strengthLabel = isVeryStrong ? 'very-strong' : (hob.qualityScore >= minQuality ? 'strong' : 'normal');
-                if (isVeryStrong) hob.veryStrongReasons = veryStrongReasons;
-              }
-            }
-
-            // Filter HOBs by quality/confirmations
-            const filterHob = (hob: any) => {
-              const ltfOk = !requireLTFConfirmations || (hob.ltfConfirmations && (hob.ltfConfirmations.bos || hob.ltfConfirmations.choch || hob.ltfConfirmations.sfp || hob.ltfConfirmations.fvgMitigation));
-              const qualityOk = typeof hob.qualityScore === 'number' && hob.qualityScore >= minQuality;
-              const invalidationOk = !excludeInvalidated || !hob.invalidated;
-              const mitigationOk = !onlyFullyMitigated || hob.fullyMitigated;
-              const veryStrongOk = !onlyVeryStrong || hob.isVeryStrong === true;
-              return ltfOk && qualityOk && invalidationOk && mitigationOk && veryStrongOk;
-            };
-            const hobFiltered = hiddenOrderBlocks.filter(filterHob);
-
             const snapshot = compact ? {
               symbol,
               interval,
@@ -1025,7 +868,6 @@ class BitgetMCPServer {
               atr,
               rsi,
               orderBlocks: orderBlocks,
-              hiddenOrderBlocks: hobFiltered,
               liquidityZones,
               vwap,
               dailyOpen,
@@ -1039,7 +881,7 @@ class BitgetMCPServer {
                 percent_change_24h: cmc.data[symbol.replace('USDT','')].quote?.USD?.percent_change_24h,
                 rank: cmc.data[symbol.replace('USDT','')].cmc_rank,
               } : null } : null,
-            } : { symbol, interval, candles, pivots, fvg, bos, trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks: hobFiltered, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, cmc };
+            } : { symbol, interval, candles, pivots, fvg, bos, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, cmc };
 
             if (telemetry) {
               try {
@@ -1083,10 +925,7 @@ class BitgetMCPServer {
             const normalizeInterval = (iv: string) => (iv === '2d' ? '1d' : iv === '4d' ? '1d' : iv === '2w' ? '1w' : iv);
             const results: any[] = [];
             for (const symbol of symbols) {
-              let candles = await this.bitgetClient.getCandles(symbol, interval, limit);
-              if (!candles.length && (interval === '2d' || interval === '4d' || interval === '2w')) {
-                candles = await this.bitgetClient.getCandles(symbol, normalizeInterval(interval), limit);
-              }
+              const candles = await this.bitgetClient.getCandles(symbol, interval, limit);
               if (!candles.length) { results.push({ symbol, error: 'no_candles' }); continue; }
               const closes = candles.map(c => parseFloat(c.close));
               const highs = candles.map(c => parseFloat(c.high));
@@ -1278,155 +1117,8 @@ class BitgetMCPServer {
 
               /* Duplicate liquidity/OB block removed: already computed above */
 
-              // Hidden Order Blocks (same logic for multi) + enrichment
-              const hiddenOrderBlocks: Array<{ type: 'bull'|'bear'; idx: number; zone: { open: number; close: number; high: number; low: number }; displacementScore: number; wickSweep: boolean; fvgConfluence: boolean; unmitigated: boolean; invalidated?: boolean; fullyMitigated?: boolean; ltfConfirmations?: { bos: boolean; choch: boolean; sfp: boolean; fvgMitigation: boolean }; qualityScore?: number; components?: any }> = [];
-              {
-                const windowN = Math.min(5, closes.length - 1);
-                const base = atr ?? Math.max(1e-8, highs[highs.length - 1] - lows[lows.length - 1]);
-                const dispUp = closes[closes.length - 1] - closes[closes.length - 1 - windowN];
-                const dispDown = closes[closes.length - 1 - windowN] - closes[closes.length - 1];
-                const threshold = base * 1.0;
-                const lastHighPivot = [...pivots].reverse().find(p => p.type === 'H');
-                const lastLowPivot = [...pivots].reverse().find(p => p.type === 'L');
-                const findUnmitigated = (startIdx: number, zoneLow: number, zoneHigh: number): boolean => {
-                  for (let i = startIdx + 1; i < candles.length; i++) {
-                    const bodyLow = Math.min(opens[i], closes[i]);
-                    const bodyHigh = Math.max(opens[i], closes[i]);
-                    if (bodyHigh >= zoneLow && bodyLow <= zoneHigh) return false;
-                  }
-                  return true;
-                };
-                if (dispUp > threshold) {
-                  const startIdx = closes.length - 1 - windowN; let obIdx: number | null = null;
-                  for (let i = startIdx; i >= Math.max(1, startIdx - 20); i--) { if (opens[i] > closes[i]) { obIdx = i; break; } }
-                  if (obIdx !== null) {
-                    const wickSweep = !!(lastLowPivot && lows[obIdx] < (lastLowPivot.price - (atr ? atr * 0.1 : 0)));
-                    const fvgConfluence = fvg.some(g => g.type === 'bull' && g.startIdx >= startIdx - 2 && g.startIdx <= startIdx + 4);
-                    const displacementScore = dispUp / base;
-                    const zone = { open: opens[obIdx], close: closes[obIdx], high: highs[obIdx], low: lows[obIdx] };
-                    const unmitigated = findUnmitigated(obIdx, Math.min(zone.open, zone.close), Math.max(zone.open, zone.close));
-                    hiddenOrderBlocks.push({ type: 'bull', idx: obIdx, zone, displacementScore, wickSweep, fvgConfluence, unmitigated });
-                  }
-                } else if (dispDown > threshold) {
-                  const startIdx = closes.length - 1 - windowN; let obIdx: number | null = null;
-                  for (let i = startIdx; i >= Math.max(1, startIdx - 20); i--) { if (opens[i] < closes[i]) { obIdx = i; break; } }
-                  if (obIdx !== null) {
-                    const wickSweep = !!(lastHighPivot && highs[obIdx] > (lastHighPivot.price + (atr ? atr * 0.1 : 0)));
-                    const fvgConfluence = fvg.some(g => g.type === 'bear' && g.startIdx >= startIdx - 2 && g.startIdx <= startIdx + 4);
-                    const displacementScore = dispDown / base;
-                    const zone = { open: opens[obIdx], close: closes[obIdx], high: highs[obIdx], low: lows[obIdx] };
-                    const unmitigated = findUnmitigated(obIdx, Math.min(zone.open, zone.close), Math.max(zone.open, zone.close));
-                    hiddenOrderBlocks.push({ type: 'bear', idx: obIdx, zone, displacementScore, wickSweep, fvgConfluence, unmitigated });
-                  }
-                }
-              }
-                // Enrich multi HOBs similarly
-                {
-                  const intervalMsMap: Record<string, number> = { '1m': 60_000, '3m': 180_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '6h': 21_600_000, '12h': 43_200_000, '1d': 86_400_000, '2d': 172_800_000, '4d': 345_600_000, '1w': 604_800_000, '2w': 1_209_600_000 };
-                  const ltfMap: Record<string, string> = { '2w': '1d', '1w': '4h', '4d': '1h', '2d': '30m', '1d': '1h', '12h': '1h', '6h': '30m', '4h': '30m', '1h': '15m', '30m': '5m', '15m': '5m', '5m': '1m' };
-                  const tfWeightMap: Record<string, number> = { '1m': 0.5, '5m': 0.7, '15m': 0.8, '30m': 0.9, '1h': 1.0, '4h': 1.1, '1d': 1.2, '2d': 1.25, '4d': 1.3, '1w': 1.35, '2w': 1.4 };
-                  const intervalMs = intervalMsMap[interval] ?? 3_600_000;
-                  const ltfInterval = ltfMap[interval] ?? null;
-                  const volSorted = [...volumes].sort((a,b)=>a-b);
-                  const vol75 = volSorted[Math.floor(volSorted.length * 0.75)] || 0;
-                  const baseATR = atr ?? Math.max(1e-8, highs[highs.length - 1] - lows[lows.length - 1]);
-                  const nearFvg = (type: 'bull'|'bear', obIdx: number) => fvg.some(g => g.type === type && g.startIdx >= obIdx - 2 && g.startIdx <= obIdx + 4);
-                  const nearestLiquidityScore = (type: 'bull'|'bear', zoneMid: number) => {
-                    const levels = type === 'bull' ? liquidityZones.lows : liquidityZones.highs;
-                    let best = Infinity; for (const l of levels) { const d = Math.abs(zoneMid - l.level); if (d < best) best = d; }
-                    if (!Number.isFinite(best)) return 0; const norm = best / baseATR; return Math.max(0, 1 - Math.min(1, norm));
-                  };
-                  const vwapConfluence = (zoneMid: number) => { if (vwap == null) return false; const diff = Math.abs(zoneMid - vwap); return (diff / baseATR) <= 0.5; };
-                  const hvnConfluence = (obIdx: number) => volumes[obIdx] >= vol75;
-                  const computeLtfConfirmations = async (touchTs: number, type: 'bull'|'bear') => {
-                    try {
-                      if (!ltfInterval) return { bos: false, choch: false, sfp: false, fvgMitigation: false };
-                      const ltfCandles = await this.bitgetClient.getCandles(symbol, ltfInterval, 300);
-                      const series = ltfCandles.map(c => ({ ts: c.timestamp, o: +c.open, h: +c.high, l: +c.low, c: +c.close }));
-                      const windowStart = touchTs; const windowEnd = touchTs + 3 * intervalMs;
-                      const subset = series.filter((c: { ts: number }) => c.ts >= windowStart && c.ts <= windowEnd);
-                      if (subset.length < 5) return { bos: false, choch: false, sfp: false, fvgMitigation: false };
-                      const highsL = subset.map((c: any)=>c.h), lowsL = subset.map((c: any)=>c.l), closesL = subset.map((c: any)=>c.c);
-                      const preRangeHigh = Math.max(...highsL.slice(0, Math.max(1, Math.floor(highsL.length/3))));
-                      const preRangeLow = Math.min(...lowsL.slice(0, Math.max(1, Math.floor(lowsL.length/3))));
-                      const bos = type === 'bull' ? (Math.max(...closesL) > preRangeHigh) : (Math.min(...closesL) < preRangeLow);
-                      const firstMoves = closesL.slice(0, 3).map((v: number, i: number)=> i>0 ? v - closesL[i-1] : 0);
-                      const initialOpposite = type === 'bull' ? (firstMoves[1] < 0) : (firstMoves[1] > 0);
-                      const choch = initialOpposite && bos;
-                      const tol = baseATR * 0.1; let sfp = false;
-                      for (let i = 2; i < subset.length; i++) {
-                        if (type === 'bear' && highsL[i] > preRangeHigh + tol && closesL[i] < preRangeHigh) { sfp = true; break; }
-                        if (type === 'bull' && lowsL[i] < preRangeLow - tol && closesL[i] > preRangeLow) { sfp = true; break; }
-                      }
-                      let fvgMitigation = false;
-                      for (let i = 2; i < subset.length; i++) { const bullGap = lowsL[i] > highsL[i-2]; const bearGap = highsL[i] < lowsL[i-2]; if (bullGap || bearGap) { const filled = (i+1 < subset.length) && (lowsL[i+1] <= highsL[i-2] || highsL[i+1] >= lowsL[i-2]); if (filled) { fvgMitigation = true; break; } } }
-                      return { bos, choch, sfp, fvgMitigation };
-                    } catch { return { bos: false, choch: false, sfp: false, fvgMitigation: false }; }
-                  };
-                  for (let i = 0; i < hiddenOrderBlocks.length; i++) {
-                    const hob: any = hiddenOrderBlocks[i];
-                    const zoneMid = (hob.zone.open + hob.zone.close) / 2;
-                    // invalidated/fully mitigated tracking using subsequent closes
-                    let invalidated = false; let fullyMitigated = false;
-                    for (let j = hob.idx + 1; j < candles.length; j++) {
-                      if (hob.type === 'bull') { if (closes[j] < Math.min(hob.zone.open, hob.zone.close)) { invalidated = true; break; } }
-                      else { if (closes[j] > Math.max(hob.zone.open, hob.zone.close)) { invalidated = true; break; } }
-                      const bodyLow = Math.min(opens[j], closes[j]); const bodyHigh = Math.max(opens[j], closes[j]);
-                      if (hob.type === 'bull' && bodyLow > Math.max(hob.zone.open, hob.zone.close)) { fullyMitigated = true; }
-                      if (hob.type === 'bear' && bodyHigh < Math.min(hob.zone.open, hob.zone.close)) { fullyMitigated = true; }
-                    }
-                    const touchTs = timestamps[Math.min(hob.idx + 1, timestamps.length - 1)];
-                    const ltf = await computeLtfConfirmations(touchTs, hob.type);
-                    const dispScore = Math.min(1, (hob.displacementScore / 2));
-                    const wickRatio = hob.wickSweep ? 0.8 : 0.2;
-                    const fvgNearVal = hob.fvgConfluence ? 1 : (nearFvg(hob.type, hob.idx) ? 1 : 0);
-                    const liqScore = nearestLiquidityScore(hob.type, zoneMid);
-                    const vwapConf = vwapConfluence(zoneMid) ? 1 : 0;
-                    const hvnConf = hvnConfluence(hob.idx) ? 1 : 0;
-                    const tfWeight = tfWeightMap[interval] ?? 1.0;
-                    const qualityScore = (
-                      0.35 * dispScore +
-                      0.15 * wickRatio +
-                      0.15 * fvgNearVal +
-                      0.15 * liqScore +
-                      0.1  * vwapConf +
-                      0.1  * hvnConf
-                    ) * tfWeight;
-                    const confCount = (ltf.bos?1:0) + (ltf.choch?1:0) + (ltf.sfp?1:0) + (ltf.fvgMitigation?1:0);
-                    const confConfluence = (vwapConf?1:0) + (hvnConf?1:0) + ((liqScore >= 0.5)?1:0) + ((fvgNearVal?1:0));
-                    const isVeryStrong = !invalidated && (qualityScore >= veryStrongMinQuality) && (tfWeight >= 1.3) && (confCount >= 2) && (confConfluence >= 2);
-                    const veryStrongReasons: string[] = [];
-                    if (qualityScore >= veryStrongMinQuality) veryStrongReasons.push('quality>=threshold');
-                    if (tfWeight >= 1.3) veryStrongReasons.push('htf_weight_high');
-                    if (ltf.bos) veryStrongReasons.push('ltf_bos');
-                    if (ltf.choch) veryStrongReasons.push('ltf_choch');
-                    if (ltf.sfp) veryStrongReasons.push('ltf_sfp');
-                    if (ltf.fvgMitigation) veryStrongReasons.push('ltf_fvg_mitigation');
-                    if (vwapConf) veryStrongReasons.push('vwap_confluence');
-                    if (hvnConf) veryStrongReasons.push('hvn_confluence');
-                    if (liqScore >= 0.5) veryStrongReasons.push('near_liquidity');
-                    if (fvgNearVal) veryStrongReasons.push('fvg_near');
-                    if (fullyMitigated) veryStrongReasons.push('fully_mitigated');
-                    hob.invalidated = invalidated;
-                    hob.fullyMitigated = fullyMitigated && !invalidated;
-                    hob.ltfConfirmations = ltf;
-                    hob.qualityScore = Number(qualityScore.toFixed(3));
-                    hob.components = { dispScore, wickRatio, fvgNear: !!fvgNearVal, liqScore, vwap: !!vwapConf, hvn: !!hvnConf, tfWeight };
-                    hob.isVeryStrong = isVeryStrong;
-                    hob.strengthLabel = isVeryStrong ? 'very-strong' : (hob.qualityScore >= minQuality ? 'strong' : 'normal');
-                    if (isVeryStrong) hob.veryStrongReasons = veryStrongReasons;
-                  }
-                }
-              const filterHob = (hob: any) => {
-                const ltfOk = !requireLTFConfirmations || (hob.ltfConfirmations && (hob.ltfConfirmations.bos || hob.ltfConfirmations.choch || hob.ltfConfirmations.sfp || hob.ltfConfirmations.fvgMitigation));
-                const qualityOk = typeof hob.qualityScore === 'number' && hob.qualityScore >= minQuality;
-                const invalidationOk = !excludeInvalidated || !hob.invalidated;
-                const mitigationOk = !onlyFullyMitigated || hob.fullyMitigated;
-                const veryStrongOk = !onlyVeryStrong || hob.isVeryStrong === true;
-                return ltfOk && qualityOk && invalidationOk && mitigationOk && veryStrongOk;
-              };
-              const hobFiltered = hiddenOrderBlocks.filter(filterHob);
               const latest = { close: lastClose, high: highs[highs.length-1], low: lows[lows.length-1], ts: candles[candles.length-1]?.timestamp };
+<<<<<<< HEAD
               if (telemetry) {
                 try {
                   logHOBs(symbol, interval, lastClose, hobFiltered);
@@ -1462,6 +1154,9 @@ class BitgetMCPServer {
                 } catch {}
               }
               results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks: hobFiltered, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, hiddenOrderBlocks: hobFiltered, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, fvg });
+=======
+              results.push(compact ? { symbol, interval, latest, bos, pivots: pivots.slice(-4), trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, ...emaValues, fvg: fvg.slice(-3) } : { symbol, interval, candles, bos, pivots, trend, sma50, sma200, atr, rsi, orderBlocks, liquidityZones, vwap, dailyOpen, weeklyOpen, prevDayHigh, prevDayLow, sfp, emaValues, fvg });
+>>>>>>> 4ae2db0 (Cleanup: Remove broken test scripts and Bitget SDK experiments. Only keep working server code.)
             }
             return { content: [ { type: 'text', text: JSON.stringify(results, null, 2) } ] } as CallToolResult;
           }
